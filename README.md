@@ -258,6 +258,25 @@ The table below compares this repository with the publicly documented behavior o
 
 Source for Coplay column: [CoplayDev/unity-mcp](https://github.com/CoplayDev/unity-mcp)
 
+## Comparison With Unity AI Assistant
+
+The table below compares this repository with Unity Technologies' official `com.unity.ai.assistant` package (v2.7.0-pre.2 as of 2026-05).
+
+| Area | Funplay MCP for Unity | Unity AI Assistant |
+|------|--------------------------|--------------------|
+| Minimum Unity version | 2022.3 | 6000.3 (Unity 6 only) |
+| License | MIT, open source | Unity Terms of Service, proprietary |
+| Deployment | Local HTTP MCP server in Editor, no cloud | Editor + native Relay subprocess + Unity Cloud backend |
+| Billing | Free, user brings their own AI client | Credits-based (Unity Dashboard) |
+| Tool exposure | 91 tools across 20 modules, `core` (29) / `full` profiles | ~15 MCP tools (mostly `Manage*` families) |
+| Generic escape hatch | `execute_code` — CodeDom in-memory compile, `IFunplayCommand` + Undo, no sandbox (client-side approval) | `RunCommand` — namespace blacklist sandbox |
+| Play mode validation | Full loop: enter / simulate input / capture / read logs / exit | Enter/Exit only; no input simulation |
+| Asset generators | Not built-in (compose external APIs via `execute_code`) | Native Image / Mesh / PBR / Sound / Animation generators |
+| Primary client model | BYO any MCP client (Claude Code / Cursor / Codex / VS Code) | Built-in chat window + ACP for Claude/Gemini via Gateway |
+| Offline-capable | Yes for tool calls (inference depends on chosen client) | No (inference requires Unity Cloud) |
+
+For a long-form comparison of the two approaches see [Funplay Unity MCP vs Unity AI Assistant detailed comparison](https://blog.csdn.net/m0_62670368/article/details/161039766) (Chinese).
+
 ## MCP Capabilities
 
 The current open-source package exposes four high-value capability layers:

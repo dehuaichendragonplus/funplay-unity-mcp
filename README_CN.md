@@ -260,6 +260,25 @@ public class CommandScript : IFunplayCommand
 
 Coplay 信息来源：[CoplayDev/unity-mcp](https://github.com/CoplayDev/unity-mcp)
 
+## 与 Unity AI Assistant 的对比
+
+下表对比本仓库与 Unity Technologies 官方包 `com.unity.ai.assistant`（2026-05 时点 v2.7.0-pre.2）。
+
+| 维度 | Funplay MCP for Unity | Unity AI Assistant |
+|------|-------------------------|--------------------|
+| 最低 Unity 版本 | 2022.3 | 6000.3（仅 Unity 6）|
+| 协议 / License | MIT 开源 | Unity Terms of Service，私有 |
+| 部署 | Editor 内嵌 HTTP MCP server，纯本地 | Editor + 原生 Relay 子进程 + Unity Cloud 后端 |
+| 计费 | 免费，用户自带 AI 客户端 | Credits 点数制（Unity Dashboard）|
+| 工具暴露 | 91 工具 / 20 模块，`core` (29) / `full` profile | ~15 个 MCP 工具（多数为 `Manage*` 大粒度族）|
+| 通用逃生口 | `execute_code` — CodeDom 内存编译、`IFunplayCommand` + Undo、无沙箱（客户端层审批）| `RunCommand` — 命名空间黑名单沙箱 |
+| Play Mode 验证 | 完整闭环：进入 / 模拟输入 / 截图 / 读日志 / 退出 | 仅进入/退出，无输入模拟 |
+| 资产生成器 | 不内建（通过 `execute_code` 组合外部 API）| 内建 Image / Mesh / PBR / Sound / Animation 五类生成器 |
+| 主要客户端模型 | BYO 任意 MCP 客户端（Claude Code / Cursor / Codex / VS Code）| 自带对话窗口 + ACP 经 Gateway 接 Claude/Gemini |
+| 离线可用 | ✅ 工具调用本身全本地（推理依赖所选客户端）| ❌ 推理必须连 Unity Cloud |
+
+长文对比见 [Funplay Unity MCP 与 Unity AI Assistant 详细对比](https://blog.csdn.net/m0_62670368/article/details/161039766)。
+
 ## MCP 能力结构
 
 当前开源包有四层高价值能力：
