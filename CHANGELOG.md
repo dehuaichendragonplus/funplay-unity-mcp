@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## [0.3.2] - 2026-05-18
+
+### Added
+- `Funplay > MCP Server` window now shows the installed package version, polls GitHub for new releases every 6 hours, and surfaces a one-click update prompt when a newer version is available. Auto-check is skipped in Unity batch mode.
+
+### Fixed
+- Post-domain-reload server restart is now resilient to (a) the `[InitializeOnLoad]` vs `afterAssemblyReload` ordering race — the handler also kicks off a restart from its own static ctor if reload bookkeeping is pending, (b) `EditorApplication.isCompiling` still being true when the `delayCall` fires, (c) the service provider not yet being available, (d) duplicate scheduling. The restart now retries via `EditorApplication.update` until the editor is settled.
+- `HttpMCPTransport.StartAsync` now retries up to 10 seconds (40 × 250 ms) when the port is briefly held by an unwinding listener after an AppDomain transition. Eliminates residual `Address already in use` failures that 0.3.1 did not fully cover for fast-reload scenarios.
+- `DomainReloadHandler.CompletePendingFunction` defers the pending-function clear when the editor is mid-compile / mid-update / about to change Play Mode, instead of clearing immediately and racing the reload. 15-second fallback timeout prevents indefinite deferral.
+- Root services and MCP server startup are now no-ops in Unity batch mode (`-batchmode`), so running batch jobs in parallel with a foreground Editor that already binds port 8765 no longer conflicts.
+- `request_recompile` now returns a clear error when called while Unity is in Play Mode (Unity does not process script compilation or domain reloads while playing). Call `exit_play_mode` first, then retry.
+
+### Changed
+- `unity-mcp-workflow` skill (and the generated `AGENTS.md` / `CLAUDE.md` templates) now document two Play Mode lifecycle pitfalls: (1) after `enter_play_mode`, the HTTP server is briefly unreachable while Unity reloads the domain — poll `tools/list` / `get_reload_recovery_status` until it responds before issuing the next call; (2) `request_recompile` is rejected during Play Mode and must be preceded by `exit_play_mode`. Existing installs should regenerate Project Skills via `Funplay > Project Skills` to pick up the new content.
+
 ## [0.3.1] - 2026-05-17
 
 ### Fixed
