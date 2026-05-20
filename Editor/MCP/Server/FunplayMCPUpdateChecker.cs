@@ -1,7 +1,10 @@
 // Copyright (C) Funplay. Licensed under MIT.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Funplay.Editor.Services;
@@ -311,7 +314,7 @@ namespace Funplay.Editor.MCP.Server
                     StartGitPackageUpdate(latestVersion);
                     return;
                 case InstallMode.UnityPackageImport:
-                    await DownloadAndImportUnityPackageAsync(latestRelease, latestVersion);
+                    await DownloadAndImportUnityPackageAsync(installContext, latestRelease, latestVersion);
                     return;
                 default:
                     EditorUtility.DisplayDialog(
@@ -337,7 +340,10 @@ namespace Funplay.Editor.MCP.Server
                 "OK");
         }
 
-        private static async Task DownloadAndImportUnityPackageAsync(GitHubReleaseResponse latestRelease, string latestVersion)
+        private static async Task DownloadAndImportUnityPackageAsync(
+            InstallContext installContext,
+            GitHubReleaseResponse latestRelease,
+            string latestVersion)
         {
             var primaryAsset = latestRelease.GetPrimaryAsset();
             if (primaryAsset == null || string.IsNullOrEmpty(primaryAsset.browser_download_url))
@@ -352,13 +358,23 @@ namespace Funplay.Editor.MCP.Server
                 ? $"FunplayMCP-v{NormalizeVersion(latestVersion)}.unitypackage"
                 : primaryAsset.name);
             var tempPackagePath = Path.Combine(tempDirectory, safeFileName);
+            var filteredPackagePath = Path.Combine(
+                tempDirectory,
+                Path.GetFileNameWithoutExtension(safeFileName) + ".filtered.unitypackage");
 
             try
             {
                 await DownloadFileAsync(primaryAsset.browser_download_url, tempPackagePath, primaryAsset.name);
 
+                SetUpdateProgress("Preparing safe import package...", 0.91f);
+                var filterSummary = CreateFilteredUnityPackage(
+                    tempPackagePath,
+                    filteredPackagePath,
+                    installContext.RootPath);
+                Debug.Log($"[Funplay MCP] {filterSummary}");
+
                 SetUpdateProgress($"Importing {safeFileName}...", 0.95f);
-                AssetDatabase.ImportPackage(tempPackagePath, false);
+                AssetDatabase.ImportPackage(filteredPackagePath, false);
                 AssetDatabase.Refresh();
 
                 EditorUtility.ClearProgressBar();
@@ -372,7 +388,183 @@ namespace Funplay.Editor.MCP.Server
             {
                 EditorUtility.ClearProgressBar();
                 TryDeleteFile(tempPackagePath);
+                TryDeleteFile(filteredPackagePath);
             }
+        }
+
+        private static string CreateFilteredUnityPackage(string sourcePath, string destinationPath, string installRootPath)
+        {
+            var importRoot = NormalizePackagePath(string.IsNullOrWhiteSpace(installRootPath)
+                ? DefaultAssetRoot
+                : installRootPath);
+            if (string.IsNullOrEmpty(importRoot) || !importRoot.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase))
+                importRoot = DefaultAssetRoot;
+
+            var entries = ReadUnityPackageEntries(sourcePath);
+            var packagePathnames = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var entry = entries[i];
+                if (entry.IsPathname)
+                    packagePathnames[entry.PackageFolder] = ReadPathname(entry);
+            }
+
+            var allowedFolders = new HashSet<string>(StringComparer.Ordinal);
+            var importedCount = 0;
+            var skippedCount = 0;
+            foreach (var kvp in packagePathnames)
+            {
+                if (IsSafeUnityPackagePath(kvp.Value, importRoot))
+                {
+                    allowedFolders.Add(kvp.Key);
+                    importedCount++;
+                }
+                else
+                {
+                    skippedCount++;
+                }
+            }
+
+            if (importedCount == 0)
+                throw new InvalidOperationException($"The downloaded package does not contain any assets under '{importRoot}'.");
+
+            using (var fileStream = File.Create(destinationPath))
+            using (var gzipStream = new GZipStream(fileStream, System.IO.Compression.CompressionLevel.Optimal))
+            {
+                for (int i = 0; i < entries.Count; i++)
+                {
+                    var entry = entries[i];
+                    if (!entry.IsRoot && !allowedFolders.Contains(entry.PackageFolder))
+                        continue;
+
+                    gzipStream.Write(entry.Header, 0, entry.Header.Length);
+                    if (entry.PayloadWithPadding.Length > 0)
+                        gzipStream.Write(entry.PayloadWithPadding, 0, entry.PayloadWithPadding.Length);
+                }
+
+                gzipStream.Write(new byte[1024], 0, 1024);
+            }
+
+            return $"Prepared safe unitypackage import for '{importRoot}': {importedCount} plugin entries included, {skippedCount} non-plugin entries skipped.";
+        }
+
+        private static List<UnityPackageEntry> ReadUnityPackageEntries(string packagePath)
+        {
+            var entries = new List<UnityPackageEntry>();
+            using (var fileStream = File.OpenRead(packagePath))
+            using (var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress))
+            {
+                while (true)
+                {
+                    var header = ReadExact(gzipStream, 512);
+                    if (header == null || IsZeroBlock(header))
+                        break;
+
+                    var size = ParseTarSize(header);
+                    if (size > int.MaxValue)
+                        throw new InvalidOperationException("The update package contains an entry that is too large to import safely.");
+
+                    var paddingSize = (512 - (size % 512)) % 512;
+                    var payload = ReadExact(gzipStream, checked((int)(size + paddingSize))) ?? Array.Empty<byte>();
+                    var name = ReadTarName(header);
+                    var normalizedName = NormalizeTarEntryName(name);
+                    entries.Add(new UnityPackageEntry(header, payload, checked((int)size), normalizedName));
+                }
+            }
+
+            return entries;
+        }
+
+        private static byte[] ReadExact(Stream stream, int count)
+        {
+            var buffer = new byte[count];
+            var offset = 0;
+            while (offset < count)
+            {
+                var read = stream.Read(buffer, offset, count - offset);
+                if (read <= 0)
+                    return offset == 0 ? null : throw new EndOfStreamException("Unexpected end of unitypackage archive.");
+
+                offset += read;
+            }
+
+            return buffer;
+        }
+
+        private static bool IsZeroBlock(byte[] block)
+        {
+            for (int i = 0; i < block.Length; i++)
+            {
+                if (block[i] != 0)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static long ParseTarSize(byte[] header)
+        {
+            long value = 0;
+            for (int i = 124; i < 136 && i < header.Length; i++)
+            {
+                var b = header[i];
+                if (b == 0 || b == 32)
+                    continue;
+
+                if (b < '0' || b > '7')
+                    break;
+
+                value = (value << 3) + (b - '0');
+            }
+
+            return value;
+        }
+
+        private static string ReadTarName(byte[] header)
+        {
+            var length = 0;
+            while (length < 100 && length < header.Length && header[length] != 0)
+                length++;
+
+            return Encoding.UTF8.GetString(header, 0, length);
+        }
+
+        private static string NormalizeTarEntryName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return string.Empty;
+
+            var normalized = name.Replace('\\', '/');
+            if (normalized.StartsWith("./", StringComparison.Ordinal))
+                normalized = normalized.Substring(2);
+
+            return normalized.Trim('/');
+        }
+
+        private static string ReadPathname(UnityPackageEntry entry)
+        {
+            var textLength = entry.PayloadLength;
+            while (textLength > 0 && entry.PayloadWithPadding[textLength - 1] == 0)
+                textLength--;
+
+            return NormalizePackagePath(Encoding.UTF8.GetString(entry.PayloadWithPadding, 0, textLength).Trim());
+        }
+
+        private static string NormalizePackagePath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return string.Empty;
+
+            return path.Replace('\\', '/').Trim().Trim('/');
+        }
+
+        private static bool IsSafeUnityPackagePath(string packagePath, string importRoot)
+        {
+            var normalizedPath = NormalizePackagePath(packagePath);
+            var normalizedRoot = NormalizePackagePath(importRoot);
+
+            return string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase) ||
+                   normalizedPath.StartsWith(normalizedRoot + "/", StringComparison.OrdinalIgnoreCase);
         }
 
         private static async Task DownloadFileAsync(string url, string destinationPath, string assetName)
@@ -704,6 +896,37 @@ namespace Funplay.Editor.MCP.Server
                 IsUpdating = isUpdating;
                 UpdateStarted = updateStarted;
                 Progress = progress;
+            }
+        }
+
+        private sealed class UnityPackageEntry
+        {
+            public readonly byte[] Header;
+            public readonly byte[] PayloadWithPadding;
+            public readonly int PayloadLength;
+            public readonly string Name;
+            public readonly string PackageFolder;
+
+            public bool IsRoot => string.IsNullOrEmpty(Name);
+            public bool IsPathname => !string.IsNullOrEmpty(PackageFolder) &&
+                                      Name.EndsWith("/pathname", StringComparison.Ordinal);
+
+            public UnityPackageEntry(byte[] header, byte[] payloadWithPadding, int payloadLength, string name)
+            {
+                Header = header;
+                PayloadWithPadding = payloadWithPadding;
+                PayloadLength = payloadLength;
+                Name = name ?? string.Empty;
+                PackageFolder = ResolvePackageFolder(Name);
+            }
+
+            private static string ResolvePackageFolder(string name)
+            {
+                if (string.IsNullOrEmpty(name))
+                    return string.Empty;
+
+                var slashIndex = name.IndexOf('/');
+                return slashIndex < 0 ? name : name.Substring(0, slashIndex);
             }
         }
 

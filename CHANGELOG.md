@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.3.3] - 2026-05-20
+
+### Fixed
+- Unitypackage-based updates now filter downloaded release packages before import and only allow paths under the installed `Assets/unity-mcp` root. This prevents accidental release artifacts from overwriting host-project `ProjectSettings`, `Packages`, or `Library` files during one-click updates.
+
 ## [0.3.2] - 2026-05-18
 
 ### Added

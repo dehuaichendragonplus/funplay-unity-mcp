@@ -44,6 +44,8 @@ Use this checklist before publishing a new open-source release of Funplay MCP fo
 - [ ] License file is present and correct
 - [ ] Repository description/topics are set on GitHub
 - [ ] Initial tags or release tags follow the chosen versioning scheme
+- [ ] The `.unitypackage` was exported with `ExportPackageOptions.Recurse` only, without `IncludeDependencies` or `IncludeLibraryAssets`
+- [ ] The `.unitypackage` contains only `Assets/unity-mcp` paths; verify there are no `ProjectSettings/`, `Packages/`, or `Library/` entries before upload
 
 ## 6. Publish
 
