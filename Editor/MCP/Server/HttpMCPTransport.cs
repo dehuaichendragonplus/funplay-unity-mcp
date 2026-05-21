@@ -94,18 +94,30 @@ namespace Funplay.Editor.MCP.Server
 
         public void Stop()
         {
-            if (!_isRunning) return;
+            if (!_isRunning && _listener == null && _cts == null)
+                return;
+
             try
             {
                 _cts?.Cancel();
                 _listener?.Stop();
                 _listener?.Close();
-                _isRunning = false;
                 PluginDebugLogger.Log("[Funplay MCP Server] HTTP transport stopped");
+            }
+            catch (ObjectDisposedException)
+            {
+                PluginDebugLogger.Log("[Funplay MCP Server] HTTP transport was already disposed");
             }
             catch (Exception ex)
             {
                 Debug.LogError($"[Funplay MCP Server] Error stopping HTTP transport: {ex.Message}");
+            }
+            finally
+            {
+                _isRunning = false;
+                _listener = null;
+                _cts?.Dispose();
+                _cts = null;
             }
         }
 
@@ -127,10 +139,20 @@ namespace Funplay.Editor.MCP.Server
 
         private static bool IsAddressInUse(Exception ex)
         {
+            var message = ex?.Message ?? string.Empty;
+            if (message.IndexOf("Only one usage", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("Address already in use", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("another listener", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("prefix is already registered", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
             return ex is HttpListenerException listenerException &&
                    (listenerException.ErrorCode == 48 ||
                     listenerException.ErrorCode == 98 ||
-                    listenerException.Message.IndexOf("Address already in use", StringComparison.OrdinalIgnoreCase) >= 0);
+                    listenerException.ErrorCode == 183 ||
+                    listenerException.ErrorCode == 10048);
         }
 
         private async Task ListenLoopAsync(CancellationToken ct)

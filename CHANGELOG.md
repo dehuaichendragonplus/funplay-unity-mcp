@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.3.6] - 2026-05-21
+
+### Fixed
+- Made MCP server start idempotent across concurrent window, settings, and domain-reload startup paths so repeated Start calls reuse the same in-flight startup instead of creating competing HTTP transports.
+- Hardened HTTP transport cleanup during Unity reloads and Stop/Dispose races, including already-disposed `HttpListener` instances.
+- Recognize Windows and Mono `HttpListener` address-in-use variants (`10048`, `183`, `Only one usage...`, and `another listener...`) during restart retry detection.
+- Clean up partially initialized server transport, request handler, and resource provider state after failed or cancelled starts.
+
 ## [0.3.5] - 2026-05-21
 
 ### Fixed

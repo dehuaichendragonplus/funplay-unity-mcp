@@ -28,10 +28,14 @@ namespace Funplay.Editor.MCP.Server
         private readonly IApplicationPaths _applicationPaths;
         private readonly ICompilationService _compilationService;
         private readonly FunctionInvokerController _invoker;
+        private readonly object _lifecycleLock = new object();
 
         private IMCPTransport _transport;
         private MCPRequestHandler _requestHandler;
         private MCPResourceProvider _resourceProvider;
+        private Task<bool> _startTask;
+        private CancellationTokenSource _startCts;
+        private int _lifecycleVersion;
         private bool _isRunning;
         private bool _disposed;
         private bool _recoveryChecked;
@@ -39,7 +43,16 @@ namespace Funplay.Editor.MCP.Server
         private bool _restartInProgress;
         private string _toolExposureSetting;
 
-        public bool IsRunning => _isRunning;
+        public bool IsRunning
+        {
+            get
+            {
+                lock (_lifecycleLock)
+                {
+                    return _isRunning;
+                }
+            }
+        }
         public int Port { get; private set; }
         public MCPInteractionLog InteractionLog { get; }
 
@@ -67,65 +80,182 @@ namespace Funplay.Editor.MCP.Server
             DomainReloadHandler.Register(_stateController);
         }
 
-        public async Task<bool> StartAsync(CancellationToken ct = default)
+        public Task<bool> StartAsync(CancellationToken ct = default)
         {
             if (Application.isBatchMode)
             {
                 Debug.LogWarning("[Funplay MCP Server] Skipping server start in Unity batch mode process.");
-                return false;
+                return Task.FromResult(false);
             }
 
-            if (_disposed)
+            bool cleanupStaleState = false;
+            lock (_lifecycleLock)
             {
-                Debug.LogWarning("[Funplay MCP Server] Cannot start: service is disposed");
-                return false;
+                if (_disposed)
+                {
+                    Debug.LogWarning("[Funplay MCP Server] Cannot start: service is disposed");
+                    return Task.FromResult(false);
+                }
+
+                if (_isRunning && _transport?.IsRunning == true)
+                {
+                    PluginDebugLogger.Log("[Funplay MCP Server] Server is already running");
+                    return Task.FromResult(true);
+                }
+
+                if (_startTask != null)
+                {
+                    PluginDebugLogger.Log("[Funplay MCP Server] Server start is already in progress");
+                    return _startTask;
+                }
+
+                cleanupStaleState = _isRunning || _transport != null || _requestHandler != null || _resourceProvider != null;
             }
 
-            if (_isRunning)
+            if (cleanupStaleState)
             {
-                PluginDebugLogger.Log("[Funplay MCP Server] Server is already running");
-                return true;
+                Debug.LogWarning("[Funplay MCP Server] Server lifecycle state was stale; cleaning up before restart.");
+                StopSync();
             }
 
+            lock (_lifecycleLock)
+            {
+                if (_disposed)
+                {
+                    Debug.LogWarning("[Funplay MCP Server] Cannot start: service is disposed");
+                    return Task.FromResult(false);
+                }
+
+                if (_isRunning && _transport?.IsRunning == true)
+                {
+                    PluginDebugLogger.Log("[Funplay MCP Server] Server is already running");
+                    return Task.FromResult(true);
+                }
+
+                if (_startTask != null)
+                {
+                    PluginDebugLogger.Log("[Funplay MCP Server] Server start is already in progress");
+                    return _startTask;
+                }
+
+                _lifecycleVersion++;
+                _startCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var startCts = _startCts;
+                var startTask = StartCoreAsync(_lifecycleVersion, startCts);
+                _startTask = startTask;
+                _ = startTask.ContinueWith(
+                    _ => ClearCompletedStartTask(startTask, startCts),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+                return startTask;
+            }
+        }
+
+        private async Task<bool> StartCoreAsync(int lifecycleVersion, CancellationTokenSource startCts)
+        {
+            IMCPTransport transport = null;
+            MCPResourceProvider resourceProvider = null;
+            var assigned = false;
             try
             {
-                Port = ResolveStartupPort();
-                _toolExposureSetting = BuildToolExposureSetting();
+                var startupPort = ResolveStartupPort();
+                var toolExposureSetting = BuildToolExposureSetting();
                 PluginDebugLogger.Log("[Funplay MCP Server] Starting server...");
 
-                _transport = new HttpMCPTransport(Port);
+                transport = new HttpMCPTransport(startupPort);
                 var toolExporter = new MCPToolExporter(_settings);
                 var executionBridge = new MCPExecutionBridge(_threadHelper, _settings, _stateController, _invoker, InteractionLog);
-                _resourceProvider = new MCPResourceProvider(_contextBuilder, _applicationPaths, InteractionLog);
+                resourceProvider = new MCPResourceProvider(_contextBuilder, _applicationPaths, InteractionLog);
                 var promptProvider = new MCPPromptProvider(Application.productName, _applicationPaths.ProjectPath);
-                _requestHandler = new MCPRequestHandler(
+                var requestHandler = new MCPRequestHandler(
                     toolExporter,
                     executionBridge,
-                    _resourceProvider,
+                    resourceProvider,
                     promptProvider,
                     "Funplay MCP Server - " + Application.productName,
                     PackageVersionUtility.CurrentVersion);
 
-                _transport.OnRequestReceived += HandleRequestReceived;
+                transport.OnRequestReceived += HandleRequestReceived;
 
-                var started = await _transport.StartAsync(ct);
+                lock (_lifecycleLock)
+                {
+                    if (!_disposed && lifecycleVersion == _lifecycleVersion)
+                    {
+                        Port = startupPort;
+                        _toolExposureSetting = toolExposureSetting;
+                        _transport = transport;
+                        _resourceProvider = resourceProvider;
+                        _requestHandler = requestHandler;
+                        assigned = true;
+                    }
+                }
+
+                if (!assigned)
+                {
+                    DisposeUnassignedStartState(transport, resourceProvider);
+                    return false;
+                }
+
+                var started = await transport.StartAsync(startCts.Token);
                 if (started)
                 {
-                    _isRunning = true;
+                    var shouldDisposeStartedTransport = false;
+                    lock (_lifecycleLock)
+                    {
+                        if (_disposed || lifecycleVersion != _lifecycleVersion || !ReferenceEquals(_transport, transport))
+                            shouldDisposeStartedTransport = true;
+                        else
+                            _isRunning = true;
+                    }
+
+                    if (shouldDisposeStartedTransport)
+                    {
+                        CleanupServerState(transport);
+                        return false;
+                    }
+
                     PluginDebugLogger.Log($"[Funplay] MCP Server started on http://127.0.0.1:{Port}/ If this tool saves you time, please consider giving it a Star on GitHub: https://github.com/FunplayAI/funplay-unity-mcp");
                     ExternalSyncRecoveryTracker.TryCompletePendingRecovery();
                     CheckForInterruptedExecution();
                     return true;
                 }
 
+                CleanupServerState(transport);
                 Debug.LogError("[Funplay MCP Server] Failed to start transport");
+                return false;
+            }
+            catch (OperationCanceledException)
+            {
+                if (assigned)
+                    CleanupServerState(transport);
+                else
+                    DisposeUnassignedStartState(transport, resourceProvider);
                 return false;
             }
             catch (Exception ex)
             {
+                if (assigned)
+                    CleanupServerState(transport);
+                else
+                    DisposeUnassignedStartState(transport, resourceProvider);
                 Debug.LogError($"[Funplay MCP Server] Failed to start: {ex.Message}\n{ex.StackTrace}");
                 return false;
             }
+        }
+
+        private void ClearCompletedStartTask(Task<bool> completedTask, CancellationTokenSource startCts)
+        {
+            lock (_lifecycleLock)
+            {
+                if (ReferenceEquals(_startTask, completedTask))
+                    _startTask = null;
+
+                if (ReferenceEquals(_startCts, startCts))
+                    _startCts = null;
+            }
+
+            startCts.Dispose();
         }
 
         public Task StopAsync()
@@ -142,24 +272,22 @@ namespace Funplay.Editor.MCP.Server
         /// </summary>
         public void StopSync()
         {
-            if (!_isRunning) return;
+            CancellationTokenSource startCtsToCancel;
+            lock (_lifecycleLock)
+            {
+                _lifecycleVersion++;
+                startCtsToCancel = _startCts;
+                _startCts = null;
+                _startTask = null;
+            }
+
+            startCtsToCancel?.Cancel();
+
+            if (!CleanupServerState())
+                return;
 
             try
             {
-                PluginDebugLogger.Log("[Funplay MCP Server] Stopping server...");
-
-                if (_transport != null)
-                {
-                    _transport.OnRequestReceived -= HandleRequestReceived;
-                    _transport.Stop();
-                    _transport.Dispose();
-                    _transport = null;
-                }
-
-                _requestHandler = null;
-                _resourceProvider?.Dispose();
-                _resourceProvider = null;
-                _isRunning = false;
                 PluginDebugLogger.Log("[Funplay] MCP Server stopped");
             }
             catch (Exception ex)
@@ -168,12 +296,76 @@ namespace Funplay.Editor.MCP.Server
             }
         }
 
+        private bool CleanupServerState(IMCPTransport expectedTransport = null)
+        {
+            IMCPTransport transportToDispose;
+            MCPResourceProvider resourceProviderToDispose;
+            bool hadState;
+
+            lock (_lifecycleLock)
+            {
+                if (expectedTransport != null &&
+                    _transport != null &&
+                    !ReferenceEquals(_transport, expectedTransport))
+                {
+                    return false;
+                }
+
+                transportToDispose = _transport ?? expectedTransport;
+                resourceProviderToDispose = _resourceProvider;
+                hadState = _isRunning || _transport != null || _requestHandler != null || _resourceProvider != null || expectedTransport != null;
+
+                _transport = null;
+                _requestHandler = null;
+                _resourceProvider = null;
+                _isRunning = false;
+            }
+
+            if (transportToDispose != null)
+            {
+                transportToDispose.OnRequestReceived -= HandleRequestReceived;
+                transportToDispose.Stop();
+                transportToDispose.Dispose();
+            }
+
+            resourceProviderToDispose?.Dispose();
+            return hadState;
+        }
+
+        private void DisposeUnassignedStartState(IMCPTransport transport, MCPResourceProvider resourceProvider)
+        {
+            if (transport != null)
+            {
+                transport.OnRequestReceived -= HandleRequestReceived;
+                transport.Stop();
+                transport.Dispose();
+            }
+
+            resourceProvider?.Dispose();
+        }
+
         private async void HandleRequestReceived(MCPRequest request, Action<MCPResponse> sendResponse)
         {
             try
             {
+                MCPRequestHandler requestHandler;
+                lock (_lifecycleLock)
+                {
+                    requestHandler = _requestHandler;
+                }
+
+                if (requestHandler == null)
+                {
+                    sendResponse(new MCPResponse
+                    {
+                        Id = request?.Id,
+                        Error = new MCPError { Code = -32000, Message = "MCP server is stopping or not ready." }
+                    });
+                    return;
+                }
+
                 var response = await _threadHelper.ExecuteAsyncOnEditorThreadAsync(
-                    async () => await _requestHandler.HandleRequestAsync(request, default));
+                    async () => await requestHandler.HandleRequestAsync(request, default));
                 sendResponse(response);
             }
             catch (Exception ex)
