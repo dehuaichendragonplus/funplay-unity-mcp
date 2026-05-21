@@ -108,7 +108,7 @@ https://github.com/FunplayAI/funplay-unity-mcp.git
 <details>
 <summary>LM Studio</summary>
 
-LM Studio 在 macOS/Linux 上使用 `~/.lmstudio/mcp.json`，在 Windows 上使用 `%USERPROFILE%\.lmstudio\mcp.json`。你也可以在 LM Studio 中通过 **Program > Install > Edit mcp.json** 打开配置文件。
+LM Studio 的 `mcp.json` 路径会随版本和平台变化。建议优先在 LM Studio 中通过 **Program > Install > Edit mcp.json** 打开当前生效的配置文件。Funplay 的一键 Configure 会打开 LM Studio 官方 `lmstudio://add_mcp` 链接，并且只在发现已有配置文件时顺手更新它，不会创建一个猜测出来的路径。
 
 ```json
 {

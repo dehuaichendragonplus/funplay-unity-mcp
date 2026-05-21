@@ -108,7 +108,7 @@ If you prefer to edit config files manually, use the examples below as fallback 
 <details>
 <summary>LM Studio</summary>
 
-LM Studio uses `~/.lmstudio/mcp.json` on macOS/Linux and `%USERPROFILE%\.lmstudio\mcp.json` on Windows. In LM Studio, you can also open it from **Program > Install > Edit mcp.json**.
+LM Studio's `mcp.json` location can vary by version and platform. Prefer **Program > Install > Edit mcp.json** in LM Studio. Funplay's one-click Configure button opens LM Studio's `lmstudio://add_mcp` link and only updates an existing config file if one is already present, instead of creating a guessed path.
 
 ```json
 {

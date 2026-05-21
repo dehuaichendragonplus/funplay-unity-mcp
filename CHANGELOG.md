@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.3.5] - 2026-05-21
+
+### Fixed
+- Updated LM Studio one-click configuration to use the official `lmstudio://add_mcp` flow and avoid creating guessed Windows `mcp.json` paths. Existing LM Studio config files are still updated when found.
+
 ## [0.3.4] - 2026-05-20
 
 ### Added

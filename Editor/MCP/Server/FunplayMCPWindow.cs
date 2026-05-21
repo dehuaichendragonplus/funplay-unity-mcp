@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -184,7 +185,8 @@ namespace Funplay.Editor.MCP.Server
                 new MCPConfigTarget
                 {
                     Name = "LM Studio",
-                    ConfigPath = Path.Combine(homePath, ".lmstudio", "mcp.json"),
+                    ConfigPath = GetLMStudioDisplayPath(homePath),
+                    IsLMStudio = true,
                 },
                 new MCPConfigTarget
                 {
@@ -604,6 +606,25 @@ namespace Funplay.Editor.MCP.Server
             if (_configStatusLabel == null || _configPathLabel == null || _mcpTargets == null) return;
             var idx = Mathf.Clamp(_selectedTargetIndex, 0, _mcpTargets.Length - 1);
             var target = _mcpTargets[idx];
+
+            if (target.IsLMStudio)
+            {
+                var existingPaths = GetExistingLMStudioConfigPaths(GetUserHomePath());
+                bool hasExistingConfig = existingPaths.Count > 0;
+
+                _configStatusLabel.text = hasExistingConfig
+                    ? "Status: Existing LM Studio config found"
+                    : "Status: Configure opens LM Studio Add MCP link";
+                _configStatusLabel.style.color = hasExistingConfig
+                    ? new Color(0.4f, 1f, 0.4f)
+                    : new Color(1f, 0.75f, 0.4f);
+
+                _configPathLabel.text = hasExistingConfig
+                    ? "Existing config: " + string.Join(" | ", existingPaths)
+                    : "LM Studio config path varies by version. Configure uses lmstudio://add_mcp and does not create guessed paths.";
+                return;
+            }
+
             bool exists = File.Exists(target.ConfigPath);
 
             _configStatusLabel.text = exists ? "Status: Configured" : "Status: Not configured";
@@ -621,6 +642,7 @@ namespace Funplay.Editor.MCP.Server
             public string RootKey;
             public bool IsToml;
             public bool IncludeTypeField;
+            public bool IsLMStudio;
         }
 
         private void ConfigureMCPForTarget(MCPConfigTarget target)
@@ -629,11 +651,12 @@ namespace Funplay.Editor.MCP.Server
             {
                 WriteMCPConfigurationForTarget(target);
 
-                EditorUtility.DisplayDialog(
-                    "MCP Configuration",
-                    $"MCP configuration written to:\n{target.ConfigPath}\n\n" +
-                    $"Please restart {target.Name} for it to take effect.",
-                    "OK");
+                var message = target.IsLMStudio
+                    ? BuildLMStudioConfiguredMessage()
+                    : $"MCP configuration written to:\n{target.ConfigPath}\n\n" +
+                      $"Please restart {target.Name} for it to take effect.";
+
+                EditorUtility.DisplayDialog("MCP Configuration", message, "OK");
 
                 BuildUI();
             }
@@ -692,6 +715,12 @@ namespace Funplay.Editor.MCP.Server
 
         private void WriteMCPConfigurationForTarget(MCPConfigTarget target)
         {
+            if (target.IsLMStudio)
+            {
+                ConfigureLMStudioTarget(target);
+                return;
+            }
+
             var dir = Path.GetDirectoryName(target.ConfigPath);
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
@@ -794,6 +823,45 @@ namespace Funplay.Editor.MCP.Server
             File.WriteAllText(target.ConfigPath, content);
         }
 
+        private void ConfigureLMStudioTarget(MCPConfigTarget target)
+        {
+            OpenLMStudioAddMCPLink(target);
+
+            foreach (var configPath in GetExistingLMStudioConfigPaths(GetUserHomePath()))
+            {
+                var fileTarget = target;
+                fileTarget.ConfigPath = configPath;
+                ConfigureJsonTarget(fileTarget);
+            }
+        }
+
+        private void OpenLMStudioAddMCPLink(MCPConfigTarget target)
+        {
+            var config = SimpleJsonHelper.Serialize(CreateHttpEntry(target));
+            var encodedConfig = Uri.EscapeDataString(Convert.ToBase64String(Encoding.UTF8.GetBytes(config)));
+            Application.OpenURL($"lmstudio://add_mcp?name=funplay&config={encodedConfig}");
+        }
+
+        private string BuildLMStudioConfiguredMessage()
+        {
+            var existingPaths = GetExistingLMStudioConfigPaths(GetUserHomePath());
+            var message = "Opened LM Studio's Add MCP link for Funplay.\n\n";
+
+            if (existingPaths.Count > 0)
+            {
+                message += "Also updated existing LM Studio config file(s):\n" +
+                           string.Join("\n", existingPaths) +
+                           "\n\nPlease restart LM Studio or reload MCP integrations if needed.";
+            }
+            else
+            {
+                message += "No existing LM Studio mcp.json file was found, so Funplay did not create a guessed path.\n\n" +
+                           "If LM Studio did not open automatically, open LM Studio > Program > Install > Edit mcp.json and add Funplay there.";
+            }
+
+            return message;
+        }
+
         private Dictionary<string, object> CreateHttpEntry(MCPConfigTarget target)
         {
             var entry = new Dictionary<string, object>
@@ -855,6 +923,36 @@ namespace Funplay.Editor.MCP.Server
                 return homeDrive + homeDir;
 
             return Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+        }
+
+        private static string GetLMStudioDisplayPath(string homePath)
+        {
+            var existingPaths = GetExistingLMStudioConfigPaths(homePath);
+            if (existingPaths.Count > 0)
+                return string.Join(" | ", existingPaths);
+
+            return "LM Studio Add MCP link (fallback: Program > Install > Edit mcp.json)";
+        }
+
+        private static List<string> GetExistingLMStudioConfigPaths(string homePath)
+        {
+            return GetLMStudioCandidateConfigPaths(homePath)
+                .Where(File.Exists)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static IEnumerable<string> GetLMStudioCandidateConfigPaths(string homePath)
+        {
+            if (Application.platform == RuntimePlatform.WindowsEditor)
+            {
+                yield return Path.Combine(homePath, ".cache", "lm-studio", "mcp.json");
+                yield return Path.Combine(homePath, ".lmstudio", "mcp.json");
+                yield break;
+            }
+
+            yield return Path.Combine(homePath, ".lmstudio", "mcp.json");
+            yield return Path.Combine(homePath, ".cache", "lm-studio", "mcp.json");
         }
 
         private static string GetVSCodeConfigPath(string homePath)
