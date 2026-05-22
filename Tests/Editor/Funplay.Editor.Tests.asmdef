@@ -1,0 +1,21 @@
+{
+    "name": "Funplay.Editor.Tests",
+    "rootNamespace": "Funplay.Editor.Tests",
+    "references": [
+        "Funplay.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "noEngineReferences": false
+}

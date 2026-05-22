@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.3.7] - 2026-05-22
+
+### Fixed
+- Added a project-path-hash identity to MCP `initialize` responses so an existing Funplay listener can be verified as belonging to the same Unity project without exposing the raw local path.
+- When HTTP binding finds the configured port already occupied, the transport now probes `initialize` and attaches only if both the Funplay server name and project identity match.
+- Attached transports detach without closing the owning listener, while owned transports still stop and close their `HttpListener` normally.
+- Probe timeouts and unrelated listeners are treated as probe failures, not as external cancellation.
+- The MCP Server window now distinguishes an attached existing server from a listener owned by the current service.
+
 ## [0.3.6] - 2026-05-21
 
 ### Fixed

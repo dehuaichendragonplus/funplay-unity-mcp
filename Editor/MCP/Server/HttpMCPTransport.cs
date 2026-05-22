@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,16 +22,23 @@ namespace Funplay.Editor.MCP.Server
         private HttpListener _listener;
         private CancellationTokenSource _cts;
         private readonly int _port;
+        private readonly string _expectedServerName;
+        private readonly string _expectedProjectIdentity;
         private bool _isRunning;
+        private bool _ownsListener;
         private const int StartRetryAttempts = 40;
         private const int StartRetryDelayMs = 250;
+        private const int ExistingServerProbeTimeoutMs = 500;
 
         public bool IsRunning => _isRunning;
+        public bool IsAttachedToExistingServer => _isRunning && !_ownsListener;
         public event Action<MCPRequest, Action<MCPResponse>> OnRequestReceived;
 
-        public HttpMCPTransport(int port)
+        public HttpMCPTransport(int port, string expectedServerName = null, string expectedProjectIdentity = null)
         {
             _port = port;
+            _expectedServerName = expectedServerName;
+            _expectedProjectIdentity = expectedProjectIdentity;
         }
 
         public async Task<bool> StartAsync(CancellationToken ct = default)
@@ -50,6 +58,7 @@ namespace Funplay.Editor.MCP.Server
 
                     _cts = new CancellationTokenSource();
                     _isRunning = true;
+                    _ownsListener = true;
 
                     _ = Task.Run(() => ListenLoopAsync(_cts.Token), _cts.Token);
 
@@ -62,16 +71,27 @@ namespace Funplay.Editor.MCP.Server
                     _isRunning = false;
                     return false;
                 }
-                catch (Exception ex) when (IsAddressInUse(ex) && attempt < StartRetryAttempts)
+                catch (Exception ex) when (IsAddressInUse(ex))
                 {
                     CleanupFailedStart();
+                    if (await TryAttachToExistingFunplayServerAsync(ct))
+                        return true;
+
+                    if (attempt >= StartRetryAttempts)
+                    {
+                        Debug.LogError($"[Funplay MCP Server] Failed to start HTTP transport: {ex.Message}");
+                        _isRunning = false;
+                        return false;
+                    }
+
                     if (attempt == 1)
                     {
                         Debug.LogWarning(
                             $"[Funplay MCP Server] Port {_port} is temporarily in use; retrying for up to {(StartRetryAttempts * StartRetryDelayMs) / 1000f:0.#} seconds.");
                     }
 
-                    await Task.Delay(StartRetryDelayMs, ct);
+                    if (!await DelayBeforeRetryAsync(ct))
+                        return false;
                 }
                 catch (Exception ex)
                 {
@@ -83,6 +103,7 @@ namespace Funplay.Editor.MCP.Server
             }
 
             _isRunning = false;
+            _ownsListener = false;
             return false;
         }
 
@@ -99,10 +120,17 @@ namespace Funplay.Editor.MCP.Server
 
             try
             {
-                _cts?.Cancel();
-                _listener?.Stop();
-                _listener?.Close();
-                PluginDebugLogger.Log("[Funplay MCP Server] HTTP transport stopped");
+                if (_ownsListener)
+                {
+                    _cts?.Cancel();
+                    _listener?.Stop();
+                    _listener?.Close();
+                    PluginDebugLogger.Log("[Funplay MCP Server] HTTP transport stopped");
+                }
+                else if (_isRunning)
+                {
+                    PluginDebugLogger.Log("[Funplay MCP Server] Detached from existing HTTP transport");
+                }
             }
             catch (ObjectDisposedException)
             {
@@ -115,6 +143,7 @@ namespace Funplay.Editor.MCP.Server
             finally
             {
                 _isRunning = false;
+                _ownsListener = false;
                 _listener = null;
                 _cts?.Dispose();
                 _cts = null;
@@ -134,7 +163,117 @@ namespace Funplay.Editor.MCP.Server
             finally
             {
                 _listener = null;
+                _ownsListener = false;
             }
+        }
+
+        private static async Task<bool> DelayBeforeRetryAsync(CancellationToken ct)
+        {
+            try
+            {
+                await Task.Delay(StartRetryDelayMs, ct);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+        }
+
+        private async Task<bool> TryAttachToExistingFunplayServerAsync(CancellationToken ct)
+        {
+            if (string.IsNullOrEmpty(_expectedServerName) || string.IsNullOrEmpty(_expectedProjectIdentity))
+                return false;
+
+            try
+            {
+                var responseText = await SendInitializeProbeAsync(ct);
+                if (!IsExpectedFunplayServer(responseText, _expectedServerName, _expectedProjectIdentity))
+                    return false;
+
+                _isRunning = true;
+                _ownsListener = false;
+                PluginDebugLogger.Log(
+                    $"[Funplay MCP Server] Reusing existing HTTP transport on http://127.0.0.1:{_port}/");
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<string> SendInitializeProbeAsync(CancellationToken ct)
+        {
+            const string body = "{\"jsonrpc\":\"2.0\",\"id\":\"funplay-existing-server-probe\",\"method\":\"initialize\",\"params\":{}}";
+            try
+            {
+                using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                using (var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(ExistingServerProbeTimeoutMs) })
+                using (var content = new StringContent(body, Encoding.UTF8, "application/json"))
+                {
+                    timeoutCts.CancelAfter(ExistingServerProbeTimeoutMs);
+                    var response = await client.PostAsync($"http://127.0.0.1:{_port}/", content, timeoutCts.Token);
+                    if (response.StatusCode != HttpStatusCode.OK)
+                        return string.Empty;
+
+                    return await response.Content.ReadAsStringAsync();
+                }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return string.Empty;
+            }
+            catch (HttpRequestException)
+            {
+                return string.Empty;
+            }
+        }
+
+        private static bool IsExpectedFunplayServer(
+            string responseText,
+            string expectedServerName,
+            string expectedProjectIdentity)
+        {
+            if (string.IsNullOrEmpty(responseText) ||
+                string.IsNullOrEmpty(expectedServerName) ||
+                string.IsNullOrEmpty(expectedProjectIdentity))
+            {
+                return false;
+            }
+
+            var response = SimpleJsonHelper.Deserialize(responseText) as Dictionary<string, object>;
+            var result = GetDictionary(response, "result");
+            var serverInfo = GetDictionary(result, "serverInfo");
+            var funplayInfo = GetDictionary(result, "funplay");
+            var serverName = GetString(serverInfo, "name");
+            var projectIdentity = GetString(funplayInfo, "projectIdentity");
+
+            return string.Equals(serverName, expectedServerName, StringComparison.Ordinal) &&
+                   string.Equals(projectIdentity, expectedProjectIdentity, StringComparison.Ordinal);
+        }
+
+        private static Dictionary<string, object> GetDictionary(Dictionary<string, object> source, string key)
+        {
+            if (source != null &&
+                source.TryGetValue(key, out var value) &&
+                value is Dictionary<string, object> dictionary)
+            {
+                return dictionary;
+            }
+
+            return null;
+        }
+
+        private static string GetString(Dictionary<string, object> source, string key)
+        {
+            return source != null && source.TryGetValue(key, out var value)
+                ? value?.ToString()
+                : null;
         }
 
         private static bool IsAddressInUse(Exception ex)

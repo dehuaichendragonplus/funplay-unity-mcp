@@ -20,6 +20,7 @@ namespace Funplay.Editor.MCP.Server
         private readonly MCPPromptProvider _promptProvider;
         private readonly string _serverName;
         private readonly string _serverVersion;
+        private readonly string _projectIdentity;
 
         public MCPRequestHandler(
             MCPToolExporter toolExporter,
@@ -27,7 +28,8 @@ namespace Funplay.Editor.MCP.Server
             MCPResourceProvider resourceProvider,
             MCPPromptProvider promptProvider,
             string serverName,
-            string serverVersion)
+            string serverVersion,
+            string projectIdentity)
         {
             _toolExporter = toolExporter ?? throw new ArgumentNullException(nameof(toolExporter));
             _executionBridge = executionBridge ?? throw new ArgumentNullException(nameof(executionBridge));
@@ -35,6 +37,7 @@ namespace Funplay.Editor.MCP.Server
             _promptProvider = promptProvider ?? throw new ArgumentNullException(nameof(promptProvider));
             _serverName = string.IsNullOrWhiteSpace(serverName) ? "Funplay MCP Server" : serverName;
             _serverVersion = string.IsNullOrWhiteSpace(serverVersion) ? "0.0.0" : serverVersion;
+            _projectIdentity = projectIdentity ?? string.Empty;
         }
 
         public async Task<MCPResponse> HandleRequestAsync(MCPRequest request, CancellationToken ct)
@@ -81,6 +84,11 @@ namespace Funplay.Editor.MCP.Server
                 {
                     ["name"] = _serverName,
                     ["version"] = _serverVersion
+                },
+                ["funplay"] = new Dictionary<string, object>
+                {
+                    ["projectIdentity"] = _projectIdentity,
+                    ["projectIdentityVersion"] = FunplayProjectIdentity.IdentityVersion
                 },
                 ["capabilities"] = new Dictionary<string, object>
                 {
