@@ -206,6 +206,7 @@ Open your AI client and try: *"Create a 3D platformer level with 5 floating plat
 - The MCP server starts on `http://127.0.0.1:8765/` by default.
 - Local MCP server settings are stored in `UserSettings/FunplayMcpSettings.json`.
 - The package defaults to the `core` MCP tool profile to reduce tool-list noise for AI clients. `core` currently exposes 29 high-signal tools centered on `execute_code`, play mode control, input simulation, screenshots, performance inspection, logs, compilation checks, structured object location and component editing, editor selection / prefab-stage state, and `execute_menu_item` as a low-friction fallback. Switch to `full` in the MCP Server window if you want all 91 tools exposed.
+- `execute_code` safety checks are enabled by default from the MCP Server window. Clients may still override the default per call with the optional `safety_checks` argument.
 - Plugin debug logging is on by default and can be disabled from **Funplay > Plugin Settings**. Warnings and errors are always written to the Unity Console.
 - All exposed MCP tools run directly. There is no extra approval toggle.
 - **Menu: `Funplay > Check for Updates`** can refresh Git installs in place or download and import the latest `unitypackage` automatically.
@@ -213,6 +214,7 @@ Open your AI client and try: *"Create a 3D platformer level with 5 floating plat
 ## Why This Project
 
 - **`execute_code` First** — Optimized around one in-memory C# execution tool for rich editor/runtime orchestration. See [`execute_code`: In-Memory C# Execution](#execute_code-in-memory-c-execution) below for details.
+- **Default Safety Checks** — `execute_code` now has a persistent default-on safety toggle for clients that do not expose per-call arguments clearly
 - **Play Mode Automation** — Enter play mode, simulate keyboard/mouse input, capture screenshots, inspect logs, and validate behavior from the same MCP session
 - **Project Context Built In** — Exposes live resources for project state, active scene, selection, compilation, console output, and MCP interaction history
 - **Focused by Default, Full When Needed** — `core` exposes a compact high-signal toolset; `full` exposes all 91 tools

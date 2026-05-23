@@ -10,6 +10,8 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Funplay.Editor.DI;
+using Funplay.Editor.Settings;
 using Funplay.Editor.Tools.Helpers;
 using Funplay.Editor.Tools.Scripting;
 using Newtonsoft.Json;
@@ -54,16 +56,18 @@ namespace Funplay.Editor.Tools.Builtins
                      "  2) Legacy: any class with `public static string Run()` — return value becomes the response message.\n" +
                      "Before compiling, the editor's AssetDatabase is refreshed and pending compilation is awaited, " +
                      "so external file edits are picked up automatically without a separate request_recompile. " +
-                     "Set safety_checks=true to block a small set of obviously dangerous patterns " +
+                     "safety_checks blocks a small set of obviously dangerous patterns " +
                      "(File.Delete, Process.Start, while(true), Environment.Exit, AssetDatabase.DeleteAsset, etc) " +
-                     "as a defensive layer; default is false because Funplay relies on client-side approval. " +
+                     "as a defensive layer. If omitted, the MCP Server window's default safety-check setting is used " +
+                     "(enabled by default); explicitly passing true or false overrides that default. " +
                      "Every invocation is appended to a session-scoped history (see get_execute_code_history / replay_execute_code).")]
         [SceneEditingTool]
         public static async Task<object> ExecuteCode(
             [ToolParam("C# code to execute. See description for IFunplayCommand vs legacy Run() templates.")] string code,
-            [ToolParam("If true, reject the call before compile when the code contains obviously dangerous patterns. Default false.", Required = false)] bool safety_checks = false)
+            [ToolParam("If true, reject the call before compile when the code contains obviously dangerous patterns. If omitted, uses the MCP Server window default.", Required = false)] bool? safety_checks = null)
         {
-            if (safety_checks)
+            var effectiveSafetyChecks = ResolveSafetyChecks(safety_checks);
+            if (effectiveSafetyChecks)
             {
                 foreach (var (pattern, reason) in SafetyBlocklist)
                 {
@@ -152,11 +156,11 @@ namespace Funplay.Editor.Tools.Builtins
 
         [Description("Re-run a past execute_code invocation by index (use get_execute_code_history to discover indices). " +
                      "The original code is re-compiled and executed; this also appends a new history entry. " +
-                     "Pass safety_checks if you want the rerun to be gated, default false.")]
+                     "Pass safety_checks to override the MCP Server window default.")]
         [SceneEditingTool]
         public static async Task<object> ReplayExecuteCode(
             [ToolParam("History index to replay (as returned by get_execute_code_history).")] int index,
-            [ToolParam("If true, re-evaluate the safety blocklist before re-running. Default false.", Required = false)] bool safety_checks = false)
+            [ToolParam("If true, re-evaluate the safety blocklist before re-running. If omitted, uses the MCP Server window default.", Required = false)] bool? safety_checks = null)
         {
             var entries = LoadHistory().entries;
             if (entries.Count == 0)
@@ -184,6 +188,15 @@ namespace Funplay.Editor.Tools.Builtins
         }
 
         // ---- History helpers ----------------------------------------------------
+
+        private static bool ResolveSafetyChecks(bool? safetyChecks)
+        {
+            if (safetyChecks.HasValue)
+                return safetyChecks.Value;
+
+            var settings = RootScopeServices.Services?.GetService(typeof(ISettingsController)) as ISettingsController;
+            return settings?.ExecuteCodeSafetyChecksEnabled ?? true;
+        }
 
         [Serializable]
         private class HistoryEntry

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## [0.3.8] - 2026-05-23
+
+### Added
+- Added a default-on `execute_code` safety checks toggle to the MCP Server window. Clients that omit the `safety_checks` argument now use this project-level default, while explicit tool arguments still override it.
+
+### Fixed
+- Reworked the MCP HTTP transport to use a directly owned loopback TCP listener and retry post-domain-reload binds, avoiding Windows/Unity 6 `Address already in use` recovery failures caused by stale listener state.
+- Avoided Unity synchronization-context capture during transport bind retries so occupied-port recovery cannot stall the editor when callers synchronously wait on startup.
+- Hardened editor-thread queued task cleanup during server disposal so pending work is cancelled cleanly across domain reloads.
+
 ## [0.3.7] - 2026-05-22
 
 ### Fixed

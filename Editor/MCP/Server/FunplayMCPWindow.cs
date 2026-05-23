@@ -159,6 +159,22 @@ namespace Funplay.Editor.MCP.Server
             toolProfileHint.style.marginBottom = 10;
             _mainContainer.Add(toolProfileHint);
 
+            var safetyToggle = new Toggle("Default execute_code safety checks");
+            safetyToggle.SetValueWithoutNotify(_settingsController.ExecuteCodeSafetyChecksEnabled);
+            safetyToggle.RegisterValueChangedCallback(evt =>
+            {
+                _settingsController.ExecuteCodeSafetyChecksEnabled = evt.newValue;
+            });
+            safetyToggle.style.marginBottom = 4;
+            _mainContainer.Add(safetyToggle);
+
+            var safetyHint = new Label("Used when a client omits safety_checks. Explicit tool arguments still override this default.");
+            safetyHint.style.fontSize = 10;
+            safetyHint.style.color = new Color(0.65f, 0.65f, 0.65f);
+            safetyHint.style.marginBottom = 10;
+            safetyHint.style.whiteSpace = WhiteSpace.Normal;
+            _mainContainer.Add(safetyHint);
+
             // One-Click Config Section
             var configLabel = new Label("One-Click MCP Configuration");
             configLabel.style.fontSize = 12;

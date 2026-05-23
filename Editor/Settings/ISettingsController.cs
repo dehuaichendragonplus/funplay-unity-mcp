@@ -14,6 +14,7 @@ namespace Funplay.Editor.Settings
         bool MCPFullToolsConfigured { get; }
         string[] MCPFullTools { get; set; }
         string MCPSelectedConfigTarget { get; set; }
+        bool ExecuteCodeSafetyChecksEnabled { get; set; }
         bool PluginDebugLoggingEnabled { get; set; }
 
         event Action OnSettingsChanged;

@@ -16,6 +16,7 @@ namespace Funplay.Editor.Settings
         private const int DefaultPort = 8765;
         private const string DefaultToolExportProfile = "core";
         private const string DefaultSelectedConfigTarget = "Claude Code";
+        private const bool DefaultExecuteCodeSafetyChecksEnabled = true;
         private const bool DefaultPluginDebugLoggingEnabled = true;
 
         private readonly string _settingsPath;
@@ -142,6 +143,23 @@ namespace Funplay.Editor.Settings
             }
         }
 
+        public bool ExecuteCodeSafetyChecksEnabled
+        {
+            get
+            {
+                lock (_lock)
+                    return _settings.executeCodeSafetyChecksEnabled;
+            }
+            set
+            {
+                UpdateSettings(data =>
+                {
+                    data.executeCodeSafetyChecksEnabled = value;
+                    data.executeCodeSafetyChecksConfigured = true;
+                });
+            }
+        }
+
         public bool PluginDebugLoggingEnabled
         {
             get
@@ -234,6 +252,8 @@ namespace Funplay.Editor.Settings
                 port = DefaultPort,
                 toolExportProfile = DefaultToolExportProfile,
                 selectedConfigTarget = DefaultSelectedConfigTarget,
+                executeCodeSafetyChecksEnabled = DefaultExecuteCodeSafetyChecksEnabled,
+                executeCodeSafetyChecksConfigured = true,
                 pluginDebugLoggingEnabled = DefaultPluginDebugLoggingEnabled,
                 pluginDebugLoggingConfigured = true
             };
@@ -249,6 +269,11 @@ namespace Funplay.Editor.Settings
             settings.coreTools = settings.coreToolsCustom ? NormalizeToolNames(settings.coreTools) : null;
             settings.fullTools = settings.fullToolsCustom ? NormalizeToolNames(settings.fullTools) : null;
             settings.selectedConfigTarget = NormalizeSelectedConfigTarget(settings.selectedConfigTarget);
+            if (!settings.executeCodeSafetyChecksConfigured)
+            {
+                settings.executeCodeSafetyChecksEnabled = DefaultExecuteCodeSafetyChecksEnabled;
+                settings.executeCodeSafetyChecksConfigured = true;
+            }
             if (!settings.pluginDebugLoggingConfigured)
             {
                 settings.pluginDebugLoggingEnabled = DefaultPluginDebugLoggingEnabled;
@@ -290,6 +315,8 @@ namespace Funplay.Editor.Settings
             public bool fullToolsCustom = false;
             public List<string> fullTools;
             public string selectedConfigTarget = DefaultSelectedConfigTarget;
+            public bool executeCodeSafetyChecksEnabled = DefaultExecuteCodeSafetyChecksEnabled;
+            public bool executeCodeSafetyChecksConfigured = false;
             public bool pluginDebugLoggingEnabled = DefaultPluginDebugLoggingEnabled;
             public bool pluginDebugLoggingConfigured = false;
         }

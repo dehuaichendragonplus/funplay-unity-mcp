@@ -289,7 +289,7 @@ namespace Funplay.Editor.MCP.Server
         /// Synchronously stop the server. Required during
         /// <c>AssemblyReloadEvents.beforeAssemblyReload</c> and from <see cref="Dispose"/>:
         /// Unity unloads the AppDomain immediately after these callbacks return and does not
-        /// await fire-and-forget tasks, which would leave the HttpListener bound to the port.
+        /// await fire-and-forget tasks, which would leave the transport bound to the port.
         /// </summary>
         public void StopSync()
         {
