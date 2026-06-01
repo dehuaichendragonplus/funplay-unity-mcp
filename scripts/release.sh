@@ -370,8 +370,6 @@ validate_unitypackage() {
 generate_notes_and_sums() {
   info "Generating release notes and SHA256SUMS"
   {
-    echo "## v$VERSION"
-    echo
     if awk -v version="$VERSION" '
       $0 ~ "^## \\[" version "\\]" { found = 1; next }
       found && /^## \[/ { exit }
