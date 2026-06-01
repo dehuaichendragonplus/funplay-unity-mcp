@@ -2,6 +2,7 @@
 using System;
 using System.Text;
 using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
+using Funplay.Editor.Tools.Helpers;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -39,7 +40,7 @@ namespace Funplay.Editor.Tools.Builtins
                         }
                     }
                     if (root == null)
-                        return $"Error: GameObject '{root_name}' not found in scene";
+                        return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { root_name });
 
                     PrintNode(sb, root.transform, 0, depth, include_components, include_inactive);
                 }
@@ -59,7 +60,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                return $"Error: {ex.Message}";
+                return ToolResultFormatter.Exception(ex);
             }
         }
 

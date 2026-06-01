@@ -36,3 +36,8 @@ Thumbs.db
 *.aab
 *.unitypackage
 *.app
+
+# Local private release/agent files
+.mcpregistry_*_token
+CLAUDE.md
+CLAUDE.md.meta

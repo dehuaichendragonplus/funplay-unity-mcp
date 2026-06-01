@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## [0.3.9] - 2026-06-01
+
+### Added
+- Added stricter default-on filesystem safety checks for `execute_code`, covering broad `System.IO` writes, raw file streams, absolute/user/system paths, and path traversal patterns while clearly documenting that this is not a full sandbox.
+- Added a local release helper script for version bumping, Unity test/export flows, unitypackage pathname validation, release notes, checksums, and optional publishing.
+
+### Changed
+- Split the MCP Server window into smaller focused panels and moved related settings, tool exposure, project skills, and skills management classes out of the monolithic window file.
+- Standardized tool error results on structured JSON envelopes with `success:false`, `code`, `error`, and optional `data`; legacy `Error:` text is no longer treated as an error signal.
+- Disabled verbose plugin debug logging by default and kept high-volume request logs in the Recent Activity UI instead of the Unity Console.
+
+### Fixed
+- Filtered release unitypackages through an explicit asset list so local-only files, tests, ProjectSettings, Packages, Library, and token files cannot be included accidentally.
+- Hardened release-script cleanup, non-publishing flows, and Unity export handling so a lingering batchmode process does not block package validation after a package has already been written.
+
 ## [0.3.8] - 2026-05-23
 
 ### Added

@@ -3,6 +3,7 @@
 using System.Collections.Generic;
 using Funplay.Editor.Api;
 using Funplay.Editor.Api.Models;
+using Funplay.Editor.Tools.Helpers;
 
 namespace Funplay.Editor.MCP.Client
 {
@@ -65,7 +66,8 @@ namespace Funplay.Editor.MCP.Client
                 if (root.ContainsKey("error") && root["error"] is Dictionary<string, object> error)
                 {
                     var message = error.ContainsKey("message") ? error["message"] as string : "Unknown MCP error";
-                    return $"Error: {message}";
+                    var code = error.ContainsKey("code") ? error["code"] : null;
+                    return ToolResultFormatter.Error("MCP_JSONRPC_ERROR", new { code, message });
                 }
                 return null;
             }

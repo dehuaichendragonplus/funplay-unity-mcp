@@ -6,6 +6,7 @@ using UnityEngine;
 using Funplay.Editor.Settings;
 using Funplay.Editor.State;
 using Funplay.Editor.Threading;
+using Funplay.Editor.Tools.Helpers;
 
 namespace Funplay.Editor.Tools
 {
@@ -105,7 +106,7 @@ namespace Funplay.Editor.Tools
                 functionCall.Result = result;
                 DomainReloadHandler.CompletePendingFunction(_stateController);
 
-                if (result != null && result.StartsWith("Error:"))
+                if (ToolResultFormatter.IsError(result))
                 {
                     functionCall.Error = result;
                     functionCall.SetState(FunctionState.Failed);
@@ -120,7 +121,7 @@ namespace Funplay.Editor.Tools
                 DomainReloadHandler.ClearPendingFunction();
                 _stateController.ClearState();
                 functionCall.Error = ex.Message;
-                functionCall.Result = $"Error: {ex.Message}";
+                functionCall.Result = ToolResultFormatter.Exception(ex);
                 functionCall.SetState(FunctionState.Failed);
                 Debug.LogError($"[Funplay] Function execution error: {ex.Message}");
             }

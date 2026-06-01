@@ -6,6 +6,7 @@ using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
 using Funplay.Editor.DI;
 using Funplay.Editor.Services.UnityLogs;
 using Funplay.Editor.Tools;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEngine;
 
@@ -21,7 +22,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var go = GameObject.Find(name);
             if (go == null)
-                return $"Error: GameObject '{name}' not found";
+                return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { name });
 
             Selection.activeGameObject = go;
             EditorGUIUtility.PingObject(go);
@@ -35,7 +36,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var go = GameObject.Find(name);
             if (go == null)
-                return $"Error: GameObject '{name}' not found";
+                return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { name });
 
             Selection.activeGameObject = go;
             if (SceneView.lastActiveSceneView != null)
@@ -52,7 +53,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var obj = AssetDatabase.LoadMainAssetAtPath(path);
             if (obj == null)
-                return $"Error: Asset not found at '{path}'";
+                return ToolResultFormatter.Error("ASSET_NOT_FOUND", new { path });
 
             EditorGUIUtility.PingObject(obj);
             return $"Pinged asset at '{path}'";
@@ -106,7 +107,7 @@ namespace Funplay.Editor.Tools.Builtins
                 logsRepository?.Clear();
 
             if (source != "auto" && source != "cache" && source != "console")
-                return "Error: source must be 'auto', 'cache', or 'console'";
+                return ToolResultFormatter.Error("INVALID_SOURCE", new { source, accepted = new[] { "auto", "cache", "console" } });
 
             if (source == "cache" || source == "auto")
             {
@@ -121,11 +122,11 @@ namespace Funplay.Editor.Tools.Builtins
             }
 
             if (since_seconds > 0)
-                return "Error: since_seconds is only supported when reading from cache or auto mode with cached results";
+                return ToolResultFormatter.Error("INVALID_SINCE_SECONDS", new { since_seconds, hint = "since_seconds is only supported when reading from cache or auto mode with cached results." });
 
             var logEntriesType = Type.GetType("UnityEditor.LogEntries, UnityEditor");
             if (logEntriesType == null)
-                return "Error: Cannot access Unity console (LogEntries API not found)";
+                return ToolResultFormatter.Error("UNITY_CONSOLE_UNAVAILABLE", new { message = "LogEntries API not found" });
 
             var getCountMethod = logEntriesType.GetMethod("GetCount",
                 BindingFlags.Public | BindingFlags.Static);
@@ -137,17 +138,17 @@ namespace Funplay.Editor.Tools.Builtins
                 BindingFlags.Public | BindingFlags.Static);
 
             if (getCountMethod == null || startMethod == null || endMethod == null || getEntryMethod == null)
-                return "Error: LogEntries API methods not found (Unity version incompatible)";
+                return ToolResultFormatter.Error("UNITY_CONSOLE_API_INCOMPATIBLE", new { message = "LogEntries API methods not found" });
 
             var logEntryType = Type.GetType("UnityEditor.LogEntry, UnityEditor");
-            if (logEntryType == null) return "Error: LogEntry type not found";
+            if (logEntryType == null) return ToolResultFormatter.Error("UNITY_CONSOLE_API_INCOMPATIBLE", new { message = "LogEntry type not found" });
 
             var modeField = logEntryType.GetField("mode",
                 BindingFlags.Public | BindingFlags.Instance);
             var messageField = logEntryType.GetField("message",
                 BindingFlags.Public | BindingFlags.Instance);
 
-            if (modeField == null || messageField == null) return "Error: LogEntry fields not found";
+            if (modeField == null || messageField == null) return ToolResultFormatter.Error("UNITY_CONSOLE_API_INCOMPATIBLE", new { message = "LogEntry fields not found" });
 
             int totalCount = (int)getCountMethod.Invoke(null, null);
             if (totalCount == 0) return "Console is empty (no log entries)";

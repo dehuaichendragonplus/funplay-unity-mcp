@@ -31,23 +31,6 @@ namespace Funplay.Editor.Tools.Builtins
         private const string HistorySessionKey = "Funplay.MCP.ExecuteCode.History";
         private const int HistoryMaxEntries = 50;
 
-        // Patterns blocked when safety_checks=true. Conservative starter set — covers the
-        // most common "AI accidentally destroyed something" cases without locking down
-        // legitimate Editor automation (we deliberately keep System.Net / reflection allowed).
-        private static readonly (string Pattern, string Reason)[] SafetyBlocklist = new[]
-        {
-            (@"\bFile\.Delete\b",                  "File.Delete blocked by safety_checks"),
-            (@"\bDirectory\.Delete\b",             "Directory.Delete blocked by safety_checks"),
-            (@"\bSystem\.IO\.File\.Delete\b",      "System.IO.File.Delete blocked by safety_checks"),
-            (@"\bProcess\.Start\b",                "Process.Start blocked by safety_checks"),
-            (@"\bSystem\.Diagnostics\.Process\b",  "System.Diagnostics.Process blocked by safety_checks"),
-            (@"\bEnvironment\.Exit\b",             "Environment.Exit blocked by safety_checks"),
-            (@"\bApplication\.Quit\b",             "Application.Quit blocked by safety_checks"),
-            (@"\bAssetDatabase\.DeleteAsset\b",    "AssetDatabase.DeleteAsset blocked by safety_checks"),
-            (@"\bwhile\s*\(\s*true\s*\)",          "Infinite while(true) loop blocked by safety_checks"),
-            (@"\bfor\s*\(\s*;\s*;\s*\)",           "Infinite for(;;) loop blocked by safety_checks"),
-        };
-
         [Description("Primary high-flexibility execution tool. Compiles a C# snippet in memory and runs it on the editor thread. " +
                      "Two templates are supported:\n" +
                      "  1) Recommended: implement IFunplayCommand on a class — receives an ExecutionContext (ctx) " +
@@ -58,7 +41,8 @@ namespace Funplay.Editor.Tools.Builtins
                      "so external file edits are picked up automatically without a separate request_recompile. " +
                      "safety_checks blocks a small set of obviously dangerous patterns " +
                      "(File.Delete, Process.Start, while(true), Environment.Exit, AssetDatabase.DeleteAsset, etc) " +
-                     "as a defensive layer. If omitted, the MCP Server window's default safety-check setting is used " +
+                     "and, when strict filesystem safety is enabled, broad System.IO writes plus obvious absolute/system/traversal paths. " +
+                     "This is a defensive layer, not a full sandbox. If omitted, the MCP Server window's default safety-check setting is used " +
                      "(enabled by default); explicitly passing true or false overrides that default. " +
                      "Every invocation is appended to a session-scoped history (see get_execute_code_history / replay_execute_code).")]
         [SceneEditingTool]
@@ -69,15 +53,19 @@ namespace Funplay.Editor.Tools.Builtins
             var effectiveSafetyChecks = ResolveSafetyChecks(safety_checks);
             if (effectiveSafetyChecks)
             {
-                foreach (var (pattern, reason) in SafetyBlocklist)
+                var strictFilesystemChecks = ResolveStrictFilesystemSafety();
+                if (ExecuteCodeSafetyPolicy.TryFindViolation(code, strictFilesystemChecks, out var pattern, out var reason))
                 {
-                    if (Regex.IsMatch(code, pattern))
-                    {
-                        var blocked = Response.Error("SAFETY_CHECK_BLOCKED",
-                            new { pattern, reason, hint = "Pass safety_checks=false to bypass." });
-                        AppendHistory(code, false, $"Blocked: {reason}");
-                        return blocked;
-                    }
+                    var blocked = Response.Error("SAFETY_CHECK_BLOCKED",
+                        new
+                        {
+                            pattern,
+                            reason,
+                            strict_filesystem_checks = strictFilesystemChecks,
+                            hint = "Disable the strict filesystem guard in the MCP Server window or pass safety_checks=false only for trusted local calls."
+                        });
+                    AppendHistory(code, false, $"Blocked: {reason}");
+                    return blocked;
                 }
             }
 
@@ -120,7 +108,7 @@ namespace Funplay.Editor.Tools.Builtins
             {
                 Debug.LogError($"[Funplay] ExecuteCode failed: {ex.Message}");
                 AppendHistory(code, false, ex.Message);
-                return Response.Error($"EXECUTE_CODE_FAILED: {ex.Message}");
+                return Response.Error("EXECUTE_CODE_FAILED", new { message = ex.Message });
             }
         }
 
@@ -196,6 +184,12 @@ namespace Funplay.Editor.Tools.Builtins
 
             var settings = RootScopeServices.Services?.GetService(typeof(ISettingsController)) as ISettingsController;
             return settings?.ExecuteCodeSafetyChecksEnabled ?? true;
+        }
+
+        private static bool ResolveStrictFilesystemSafety()
+        {
+            var settings = RootScopeServices.Services?.GetService(typeof(ISettingsController)) as ISettingsController;
+            return settings?.ExecuteCodeStrictFilesystemSafetyEnabled ?? true;
         }
 
         [Serializable]
@@ -339,7 +333,7 @@ namespace Funplay.Editor.Tools.Builtins
         private static object CompileAndExecute(string code, string className)
         {
             if (!EnsureCodeDomTypes())
-                return Response.Error($"CODEDOM_UNAVAILABLE: {_typeLoadError}");
+                return Response.Error("CODEDOM_UNAVAILABLE", new { message = _typeLoadError });
 
             var provider = Activator.CreateInstance(_providerType);
             try

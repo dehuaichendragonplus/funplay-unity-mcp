@@ -1,6 +1,7 @@
 // Copyright (C) Funplay. Licensed under MIT.
 
 using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
@@ -56,7 +57,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var parent = FindParent(parent_name);
             if (parent == null)
-                return $"Error: Parent '{parent_name}' not found. Create a Canvas first.";
+                return ToolResultFormatter.Error("PARENT_NOT_FOUND", new { parent_name, hint = "Create a Canvas first." });
 
             var buttonGo = new GameObject(name);
             Undo.RegisterCreatedObjectUndo(buttonGo, $"Create Button {name}");
@@ -104,7 +105,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var parent = FindParent(parent_name);
             if (parent == null)
-                return $"Error: Parent '{parent_name}' not found. Create a Canvas first.";
+                return ToolResultFormatter.Error("PARENT_NOT_FOUND", new { parent_name, hint = "Create a Canvas first." });
 
             var textGo = new GameObject(name);
             Undo.RegisterCreatedObjectUndo(textGo, $"Create Text {name}");
@@ -139,7 +140,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var parent = FindParent(parent_name);
             if (parent == null)
-                return $"Error: Parent '{parent_name}' not found. Create a Canvas first.";
+                return ToolResultFormatter.Error("PARENT_NOT_FOUND", new { parent_name, hint = "Create a Canvas first." });
 
             var imageGo = new GameObject(name);
             Undo.RegisterCreatedObjectUndo(imageGo, $"Create Image {name}");

@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Reflection;
 using System.Text;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -23,7 +24,7 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Mouse button: left, right, or middle", Required = false)] string button = "left")
         {
             if (!EditorApplication.isPlaying)
-                return "Error: SimulateMouseClick only works in Play Mode.";
+                return ToolResultFormatter.ErrorMessage("PLAY_MODE_REQUIRED", "SimulateMouseClick only works in Play Mode.");
 
             try
             {
@@ -44,7 +45,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                return $"Error: {ex.Message}";
+                return ToolResultFormatter.Exception(ex);
             }
         }
 

@@ -139,7 +139,8 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Tool name: View, Move, Rotate, Scale, Rect, Transform, None")] string tool)
         {
             if (!Enum.TryParse<UnityEditor.Tool>(tool, ignoreCase: true, out var parsed))
-                return Response.Error($"INVALID_TOOL: Unknown tool '{tool}'. Use one of: {string.Join(", ", Enum.GetNames(typeof(UnityEditor.Tool)))}");
+                return Response.Error("INVALID_TOOL",
+                    new { tool, accepted = Enum.GetNames(typeof(UnityEditor.Tool)) });
 
             UnityEditor.Tools.current = parsed;
             return Response.Success($"Active tool set to {parsed}.");
@@ -182,7 +183,7 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Tag name to add")] string tag)
         {
             if (string.IsNullOrWhiteSpace(tag))
-                return Response.Error("INVALID_TAG: Tag name cannot be empty.");
+                return Response.Error("INVALID_TAG", new { message = "Tag name cannot be empty." });
 
             if (UnityEditorInternal.InternalEditorUtility.tags.Contains(tag))
                 return Response.Success($"Tag '{tag}' already exists.");
@@ -201,7 +202,7 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Tag name to remove")] string tag)
         {
             if (string.IsNullOrWhiteSpace(tag))
-                return Response.Error("INVALID_TAG: Tag name cannot be empty.");
+                return Response.Error("INVALID_TAG", new { message = "Tag name cannot be empty." });
 
             var tagManager = new SerializedObject(AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset")[0]);
             var tagsProp = tagManager.FindProperty("tags");
@@ -214,7 +215,7 @@ namespace Funplay.Editor.Tools.Builtins
                     return Response.Success($"Removed tag '{tag}'.");
                 }
             }
-            return Response.Error($"TAG_NOT_FOUND: '{tag}' is not defined.");
+            return Response.Error("TAG_NOT_FOUND", new { tag });
         }
 
         // ----- Layers -----
@@ -238,7 +239,7 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Layer name to add")] string layer)
         {
             if (string.IsNullOrWhiteSpace(layer))
-                return Response.Error("INVALID_LAYER: Layer name cannot be empty.");
+                return Response.Error("INVALID_LAYER", new { message = "Layer name cannot be empty." });
 
             if (LayerMask.NameToLayer(layer) != -1)
                 return Response.Success($"Layer '{layer}' already exists at index {LayerMask.NameToLayer(layer)}.");
@@ -255,7 +256,7 @@ namespace Funplay.Editor.Tools.Builtins
                     return Response.Success($"Added layer '{layer}' at index {i}.");
                 }
             }
-            return Response.Error("NO_FREE_LAYER: All user layer slots (8-31) are taken.");
+            return Response.Error("NO_FREE_LAYER", new { message = "All user layer slots (8-31) are taken." });
         }
 
         // ----- Build Settings -----

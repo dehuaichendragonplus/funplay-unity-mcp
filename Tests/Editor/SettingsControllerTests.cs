@@ -20,8 +20,14 @@ namespace Funplay.Editor
                 var controller = new SettingsController(new TestApplicationPaths(projectPath));
 
                 Assert.IsTrue(controller.ExecuteCodeSafetyChecksEnabled);
+                Assert.IsTrue(controller.ExecuteCodeStrictFilesystemSafetyEnabled);
+                Assert.IsFalse(controller.PluginDebugLoggingEnabled);
                 StringAssert.Contains("\"executeCodeSafetyChecksEnabled\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeSafetyChecksConfigured\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"executeCodeStrictFilesystemSafetyEnabled\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"executeCodeStrictFilesystemSafetyConfigured\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"pluginDebugLoggingEnabled\": false", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"pluginDebugLoggingConfigured\": true", ReadSettingsJson(projectPath));
             }
             finally
             {
@@ -45,8 +51,36 @@ namespace Funplay.Editor
                 var controller = new SettingsController(new TestApplicationPaths(projectPath));
 
                 Assert.IsTrue(controller.ExecuteCodeSafetyChecksEnabled);
+                Assert.IsTrue(controller.ExecuteCodeStrictFilesystemSafetyEnabled);
+                Assert.IsFalse(controller.PluginDebugLoggingEnabled);
                 StringAssert.Contains("\"executeCodeSafetyChecksEnabled\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeSafetyChecksConfigured\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"executeCodeStrictFilesystemSafetyEnabled\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"executeCodeStrictFilesystemSafetyConfigured\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"pluginDebugLoggingEnabled\": false", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"pluginDebugLoggingConfigured\": true", ReadSettingsJson(projectPath));
+            }
+            finally
+            {
+                DeleteTempProjectPath(projectPath);
+            }
+        }
+
+        [Test]
+        public void ExecuteCodeStrictFilesystemSafetySetting_PersistsFalseValue()
+        {
+            var projectPath = CreateTempProjectPath();
+
+            try
+            {
+                var controller = new SettingsController(new TestApplicationPaths(projectPath));
+                controller.ExecuteCodeStrictFilesystemSafetyEnabled = false;
+
+                var reloaded = new SettingsController(new TestApplicationPaths(projectPath));
+
+                Assert.IsFalse(reloaded.ExecuteCodeStrictFilesystemSafetyEnabled);
+                StringAssert.Contains("\"executeCodeStrictFilesystemSafetyEnabled\": false", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"executeCodeStrictFilesystemSafetyConfigured\": true", ReadSettingsJson(projectPath));
             }
             finally
             {
@@ -69,6 +103,28 @@ namespace Funplay.Editor
                 Assert.IsFalse(reloaded.ExecuteCodeSafetyChecksEnabled);
                 StringAssert.Contains("\"executeCodeSafetyChecksEnabled\": false", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeSafetyChecksConfigured\": true", ReadSettingsJson(projectPath));
+            }
+            finally
+            {
+                DeleteTempProjectPath(projectPath);
+            }
+        }
+
+        [Test]
+        public void PluginDebugLoggingSetting_PersistsTrueValue()
+        {
+            var projectPath = CreateTempProjectPath();
+
+            try
+            {
+                var controller = new SettingsController(new TestApplicationPaths(projectPath));
+                controller.PluginDebugLoggingEnabled = true;
+
+                var reloaded = new SettingsController(new TestApplicationPaths(projectPath));
+
+                Assert.IsTrue(reloaded.PluginDebugLoggingEnabled);
+                StringAssert.Contains("\"pluginDebugLoggingEnabled\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"pluginDebugLoggingConfigured\": true", ReadSettingsJson(projectPath));
             }
             finally
             {

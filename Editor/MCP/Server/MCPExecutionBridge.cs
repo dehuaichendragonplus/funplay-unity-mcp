@@ -9,6 +9,7 @@ using Funplay.Editor.Settings;
 using Funplay.Editor.State;
 using Funplay.Editor.Threading;
 using Funplay.Editor.Tools;
+using Funplay.Editor.Tools.Helpers;
 using UnityEngine;
 
 namespace Funplay.Editor.MCP.Server
@@ -61,7 +62,9 @@ namespace Funplay.Editor.MCP.Server
                     var method = ToolRegistry.GetMethod(toolName);
                     if (method == null && manualTool == null)
                     {
-                        return $"Error: Unknown tool '{toolName}'";
+                        var error = ToolResultFormatter.Error("UNKNOWN_TOOL", new { tool = toolName });
+                        _interactionLog?.Add(toolName, MCPToolCallStatus.Error, error);
+                        return error;
                     }
 
                     var profile = MCPToolExportPolicy.Parse(_settings.MCPToolExportProfile);
@@ -73,7 +76,13 @@ namespace Funplay.Editor.MCP.Server
                             _settings.MCPFullToolsConfigured,
                             _settings.MCPFullTools))
                     {
-                        return $"Error: Tool '{toolName}' is not exposed by the current MCP tool profile '{MCPToolExportPolicy.ToSettingValue(profile)}'.";
+                        var error = ToolResultFormatter.Error("TOOL_NOT_EXPOSED", new
+                        {
+                            tool = toolName,
+                            profile = MCPToolExportPolicy.ToSettingValue(profile)
+                        });
+                        _interactionLog?.Add(toolName, MCPToolCallStatus.Error, error);
+                        return error;
                     }
 
                     functionCall.IsReadOnly = method != null &&
@@ -89,20 +98,24 @@ namespace Funplay.Editor.MCP.Server
 
                     if (!string.IsNullOrEmpty(functionCall.Error))
                     {
-                        var errMsg = $"Error: {functionCall.Error}";
+                        var errMsg = ToolResultFormatter.Error("TOOL_ERROR",
+                            new { tool = toolName, message = functionCall.Error });
                         _interactionLog?.Add(toolName, MCPToolCallStatus.Error, errMsg);
                         return errMsg;
                     }
 
                     var resultText = result ?? "Completed successfully";
-                    _interactionLog?.Add(toolName, MCPToolCallStatus.Success, resultText);
+                    _interactionLog?.Add(toolName,
+                        ToolResultFormatter.IsError(resultText) ? MCPToolCallStatus.Error : MCPToolCallStatus.Success,
+                        resultText);
                     return resultText;
                 }
                 catch (Exception ex)
                 {
                     DomainReloadHandler.ClearPendingFunction();
                     _stateController.ClearState();
-                    var exError = $"Error: {ex.Message}";
+                    var exError = ToolResultFormatter.Error("TOOL_EXCEPTION",
+                        new { tool = toolName, message = ex.Message });
                     Debug.LogError($"[Funplay MCP Server] Error executing tool '{toolName}': {ex.Message}\n{ex.StackTrace}");
                     _interactionLog?.Add(toolName, MCPToolCallStatus.Error, exError);
                     return exError;

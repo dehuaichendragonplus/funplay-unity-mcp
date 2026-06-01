@@ -2,6 +2,7 @@
 
 using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
 using System.IO;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEngine;
 
@@ -18,7 +19,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var go = GameObject.Find(game_object_name);
             if (go == null)
-                return $"Error: GameObject '{game_object_name}' not found";
+                return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { game_object_name });
 
             if (!Directory.Exists(save_path))
                 Directory.CreateDirectory(save_path);
@@ -27,7 +28,7 @@ namespace Funplay.Editor.Tools.Builtins
             var prefab = PrefabUtility.SaveAsPrefabAssetAndConnect(go, fullPath, InteractionMode.UserAction);
             return prefab != null
                 ? $"Created prefab at {fullPath}"
-                : "Error: Failed to create prefab";
+                : ToolResultFormatter.Error("PREFAB_CREATE_FAILED", new { path = fullPath });
         }
 
         [Description("Instantiate a prefab in the scene")]
@@ -39,11 +40,11 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefab_path);
             if (prefab == null)
-                return $"Error: Prefab not found at '{prefab_path}'";
+                return ToolResultFormatter.Error("PREFAB_NOT_FOUND", new { prefab_path });
 
             var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
             if (instance == null)
-                return "Error: Failed to instantiate prefab";
+                return ToolResultFormatter.Error("PREFAB_INSTANTIATE_FAILED", new { prefab_path });
 
             Undo.RegisterCreatedObjectUndo(instance, "Instantiate prefab");
 
@@ -64,10 +65,10 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var go = GameObject.Find(game_object_name);
             if (go == null)
-                return $"Error: GameObject '{game_object_name}' not found";
+                return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { game_object_name });
 
             if (!PrefabUtility.IsPartOfAnyPrefab(go))
-                return $"Error: '{game_object_name}' is not a prefab instance";
+                return ToolResultFormatter.Error("NOT_PREFAB_INSTANCE", new { game_object_name });
 
             var unpackMode = mode == "outermost"
                 ? PrefabUnpackMode.OutermostRoot

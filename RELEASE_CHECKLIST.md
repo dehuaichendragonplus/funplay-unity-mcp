@@ -2,6 +2,10 @@
 
 Use this checklist before publishing a new open-source release of Funplay MCP for Unity.
 
+The local helper `scripts/release.sh <version>` automates the high-risk mechanical steps:
+version bumping, Unity EditMode tests, `.unitypackage` export, pathname validation, SHA/manifest generation,
+wrapper packing, and opt-in publishing flags for GitHub, NuGet, and the MCP Registry.
+
 ## 1. Repository Hygiene
 
 - [ ] `git status` is clean except for the files intended for the release
@@ -44,8 +48,8 @@ Use this checklist before publishing a new open-source release of Funplay MCP fo
 - [ ] License file is present and correct
 - [ ] Repository description/topics are set on GitHub
 - [ ] Initial tags or release tags follow the chosen versioning scheme
-- [ ] The `.unitypackage` was exported with `ExportPackageOptions.Recurse` only, without `IncludeDependencies` or `IncludeLibraryAssets`
-- [ ] The `.unitypackage` contains only `Assets/unity-mcp` paths; verify there are no `ProjectSettings/`, `Packages/`, or `Library/` entries before upload
+- [ ] The `.unitypackage` was exported from an explicit filtered asset list, without `IncludeDependencies` or `IncludeLibraryAssets`
+- [ ] The `.unitypackage` contains only `Assets/unity-mcp` paths; verify there are no `ProjectSettings/`, `Packages/`, `Library/`, `Tests/`, `CLAUDE.md`, or local token entries before upload
 
 ## 6. Publish
 

@@ -87,7 +87,7 @@ namespace Funplay.Editor.Tools.Builtins
 
             JToken token;
             try { token = ParseJsonValue(value); }
-            catch (Exception ex) { return Response.Error($"INVALID_VALUE_JSON: {ex.Message}"); }
+            catch (Exception ex) { return Response.Error("INVALID_VALUE_JSON", new { message = ex.Message }); }
 
             var props = new JObject { [property] = token };
             var results = ComponentSerializer.WriteProperties(resolved.Component, props,
@@ -123,7 +123,7 @@ namespace Funplay.Editor.Tools.Builtins
 
             JObject jobj;
             try { jobj = JObject.Parse(properties); }
-            catch (Exception ex) { return Response.Error($"INVALID_PROPERTIES_JSON: {ex.Message}"); }
+            catch (Exception ex) { return Response.Error("INVALID_PROPERTIES_JSON", new { message = ex.Message }); }
 
             var results = ComponentSerializer.WriteProperties(resolved.Component, jobj,
                 $"Set properties on {resolved.Component.GetType().Name}");

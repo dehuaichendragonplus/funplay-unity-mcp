@@ -5,6 +5,7 @@ using System.IO;
 using System.Reflection;
 using System.Text;
 using Funplay.Editor.Settings;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEditor.Compilation;
 using UnityEngine;
@@ -94,7 +95,8 @@ namespace Funplay.Editor.MCP
                 var type = FindType(className);
                 if (type == null)
                 {
-                    result = $"Error: Type '{className}' not found after compilation. Check console for compile errors.";
+                    result = ToolResultFormatter.Error("TEMP_SCRIPT_TYPE_NOT_FOUND",
+                        new { className, hint = "Check console for compile errors." });
                     StoreResult(result);
                     CleanupFile(tempPath);
                     return;
@@ -103,7 +105,7 @@ namespace Funplay.Editor.MCP
                 var method = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Static);
                 if (method == null)
                 {
-                    result = $"Error: static Run() method not found in '{className}'.";
+                    result = ToolResultFormatter.Error("TEMP_SCRIPT_RUN_METHOD_NOT_FOUND", new { className });
                     StoreResult(result);
                     CleanupFile(tempPath);
                     return;
@@ -115,12 +117,13 @@ namespace Funplay.Editor.MCP
             catch (TargetInvocationException ex)
             {
                 var inner = ex.InnerException ?? ex;
-                result = $"Error: {inner.Message}\n{inner.StackTrace}";
+                result = ToolResultFormatter.Error("TEMP_SCRIPT_RUNTIME_ERROR",
+                    new { message = inner.Message, stack = inner.StackTrace });
                 Debug.LogError($"[Funplay] Script execution failed: {inner.Message}\n{inner.StackTrace}");
             }
             catch (Exception ex)
             {
-                result = $"Error: {ex.Message}";
+                result = ToolResultFormatter.Error("TEMP_SCRIPT_FAILED", new { message = ex.Message });
                 Debug.LogError($"[Funplay] Script execution failed: {ex.Message}");
             }
 
@@ -206,9 +209,14 @@ namespace Funplay.Editor.MCP
 
             var tempPath = pending.Substring(separatorIndex + 1);
             var errorText = _compilationErrors?.ToString() ?? "";
-            var result = string.IsNullOrWhiteSpace(errorText)
-                ? "Compilation failed. Check Unity console for errors."
-                : $"Compilation failed with errors:\n{errorText}";
+            var result = ToolResultFormatter.Error("TEMP_SCRIPT_COMPILATION_FAILED",
+                new
+                {
+                    errors = errorText,
+                    hint = string.IsNullOrWhiteSpace(errorText)
+                        ? "Check Unity console for errors."
+                        : null
+                });
 
             StoreResult(result);
             CleanupFile(tempPath);

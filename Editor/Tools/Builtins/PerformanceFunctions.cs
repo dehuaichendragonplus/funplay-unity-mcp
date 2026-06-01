@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Profiling;
@@ -57,7 +58,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                return $"Error: {ex.Message}";
+                return ToolResultFormatter.Exception(ex);
             }
         }
 
@@ -99,7 +100,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                return $"Error: {ex.Message}";
+                return ToolResultFormatter.Exception(ex);
             }
         }
 

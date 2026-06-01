@@ -1,6 +1,7 @@
 // Copyright (C) Funplay. Licensed under MIT.
 using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
 using System.IO;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -47,7 +48,7 @@ namespace Funplay.Editor.Tools.Builtins
 
             var shaderObj = Shader.Find(actualShader);
             if (shaderObj == null)
-                return $"Error: Shader '{actualShader}' not found";
+                return ToolResultFormatter.Error("SHADER_NOT_FOUND", new { shader = actualShader });
 
             var material = new Material(shaderObj);
             material.name = name;
@@ -77,15 +78,15 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var go = GameObject.Find(game_object_name);
             if (go == null)
-                return $"Error: GameObject '{game_object_name}' not found";
+                return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { game_object_name });
 
             var renderer = go.GetComponent<Renderer>();
             if (renderer == null)
-                return $"Error: No Renderer on '{game_object_name}'";
+                return ToolResultFormatter.Error("RENDERER_NOT_FOUND", new { game_object_name });
 
             var mat = AssetDatabase.LoadAssetAtPath<Material>(material_path);
             if (mat == null)
-                return $"Error: Material not found at '{material_path}'";
+                return ToolResultFormatter.Error("MATERIAL_NOT_FOUND", new { material_path });
 
             Undo.RecordObject(renderer, $"Assign material to {game_object_name}");
             renderer.sharedMaterial = mat;
@@ -120,10 +121,10 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Path to the asset")] string path)
         {
             if (!File.Exists(path) && !Directory.Exists(path))
-                return $"Error: Asset not found at '{path}'";
+                return ToolResultFormatter.Error("ASSET_NOT_FOUND", new { path });
 
             bool deleted = AssetDatabase.DeleteAsset(path);
-            return deleted ? $"Deleted asset: {path}" : $"Error: Failed to delete {path}";
+            return deleted ? $"Deleted asset: {path}" : ToolResultFormatter.Error("ASSET_DELETE_FAILED", new { path });
         }
 
         [Description("Rename an asset")]
@@ -133,7 +134,9 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("New name (without extension)")] string new_name)
         {
             var result = AssetDatabase.RenameAsset(path, new_name);
-            return string.IsNullOrEmpty(result) ? $"Renamed to '{new_name}'" : $"Error: {result}";
+            return string.IsNullOrEmpty(result)
+                ? $"Renamed to '{new_name}'"
+                : ToolResultFormatter.Error("ASSET_RENAME_FAILED", new { path, new_name, message = result });
         }
 
         [Description("Copy an asset to a new location")]
@@ -147,7 +150,9 @@ namespace Funplay.Editor.Tools.Builtins
                 Directory.CreateDirectory(dir);
 
             bool copied = AssetDatabase.CopyAsset(source_path, destination_path);
-            return copied ? $"Copied '{source_path}' to '{destination_path}'" : $"Error: Failed to copy";
+            return copied
+                ? $"Copied '{source_path}' to '{destination_path}'"
+                : ToolResultFormatter.Error("ASSET_COPY_FAILED", new { source_path, destination_path });
         }
 
         private static Color ParseColor(string value)

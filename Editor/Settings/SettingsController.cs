@@ -17,7 +17,8 @@ namespace Funplay.Editor.Settings
         private const string DefaultToolExportProfile = "core";
         private const string DefaultSelectedConfigTarget = "Claude Code";
         private const bool DefaultExecuteCodeSafetyChecksEnabled = true;
-        private const bool DefaultPluginDebugLoggingEnabled = true;
+        private const bool DefaultExecuteCodeStrictFilesystemSafetyEnabled = true;
+        private const bool DefaultPluginDebugLoggingEnabled = false;
 
         private readonly string _settingsPath;
         private readonly object _lock = new object();
@@ -160,6 +161,23 @@ namespace Funplay.Editor.Settings
             }
         }
 
+        public bool ExecuteCodeStrictFilesystemSafetyEnabled
+        {
+            get
+            {
+                lock (_lock)
+                    return _settings.executeCodeStrictFilesystemSafetyEnabled;
+            }
+            set
+            {
+                UpdateSettings(data =>
+                {
+                    data.executeCodeStrictFilesystemSafetyEnabled = value;
+                    data.executeCodeStrictFilesystemSafetyConfigured = true;
+                });
+            }
+        }
+
         public bool PluginDebugLoggingEnabled
         {
             get
@@ -211,7 +229,11 @@ namespace Funplay.Editor.Settings
                         var loaded = JsonUtility.FromJson<SettingsData>(json);
                         if (loaded != null)
                         {
+                            var beforeNormalizeJson = JsonUtility.ToJson(loaded);
                             NormalizeInPlace(loaded);
+                            var afterNormalizeJson = JsonUtility.ToJson(loaded);
+                            if (!string.Equals(beforeNormalizeJson, afterNormalizeJson, StringComparison.Ordinal))
+                                SaveSettings(loaded);
                             return loaded;
                         }
                     }
@@ -254,6 +276,8 @@ namespace Funplay.Editor.Settings
                 selectedConfigTarget = DefaultSelectedConfigTarget,
                 executeCodeSafetyChecksEnabled = DefaultExecuteCodeSafetyChecksEnabled,
                 executeCodeSafetyChecksConfigured = true,
+                executeCodeStrictFilesystemSafetyEnabled = DefaultExecuteCodeStrictFilesystemSafetyEnabled,
+                executeCodeStrictFilesystemSafetyConfigured = true,
                 pluginDebugLoggingEnabled = DefaultPluginDebugLoggingEnabled,
                 pluginDebugLoggingConfigured = true
             };
@@ -273,6 +297,11 @@ namespace Funplay.Editor.Settings
             {
                 settings.executeCodeSafetyChecksEnabled = DefaultExecuteCodeSafetyChecksEnabled;
                 settings.executeCodeSafetyChecksConfigured = true;
+            }
+            if (!settings.executeCodeStrictFilesystemSafetyConfigured)
+            {
+                settings.executeCodeStrictFilesystemSafetyEnabled = DefaultExecuteCodeStrictFilesystemSafetyEnabled;
+                settings.executeCodeStrictFilesystemSafetyConfigured = true;
             }
             if (!settings.pluginDebugLoggingConfigured)
             {
@@ -317,6 +346,8 @@ namespace Funplay.Editor.Settings
             public string selectedConfigTarget = DefaultSelectedConfigTarget;
             public bool executeCodeSafetyChecksEnabled = DefaultExecuteCodeSafetyChecksEnabled;
             public bool executeCodeSafetyChecksConfigured = false;
+            public bool executeCodeStrictFilesystemSafetyEnabled = DefaultExecuteCodeStrictFilesystemSafetyEnabled;
+            public bool executeCodeStrictFilesystemSafetyConfigured = false;
             public bool pluginDebugLoggingEnabled = DefaultPluginDebugLoggingEnabled;
             public bool pluginDebugLoggingConfigured = false;
         }

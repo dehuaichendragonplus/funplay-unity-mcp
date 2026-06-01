@@ -8,6 +8,7 @@ using UnityEngine;
 using Funplay.Editor.Api;
 using Funplay.Editor.Api.Models;
 using Funplay.Editor.Settings;
+using Funplay.Editor.Tools.Helpers;
 
 namespace Funplay.Editor.MCP.Client
 {
@@ -101,20 +102,20 @@ namespace Funplay.Editor.MCP.Client
             CancellationToken ct = default)
         {
             if (!_isRunning || _host == null || !_host.IsConnected)
-                return "Error: MCP server is not running.";
+                return ToolResultFormatter.Error("MCP_SERVER_NOT_RUNNING");
 
             try
             {
                 var arguments = ParseArgumentsToDict(rawArguments);
                 var responseJson = await _host.CallToolAsync(toolName, arguments, ct);
                 if (string.IsNullOrEmpty(responseJson))
-                    return "Error: MCP server returned no response.";
+                    return ToolResultFormatter.Error("MCP_EMPTY_RESPONSE", new { tool = toolName });
 
                 return MCPJsonHelper.ExtractCallResult(responseJson) ?? "No result from MCP tool.";
             }
             catch (Exception ex)
             {
-                return $"Error: MCP call failed - {ex.Message}";
+                return ToolResultFormatter.Error("MCP_CALL_FAILED", new { tool = toolName, message = ex.Message });
             }
         }
 

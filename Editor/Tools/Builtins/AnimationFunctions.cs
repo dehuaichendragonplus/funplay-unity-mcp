@@ -2,6 +2,7 @@
 
 using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
 using System.IO;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
@@ -51,11 +52,11 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var go = GameObject.Find(game_object_name);
             if (go == null)
-                return $"Error: GameObject '{game_object_name}' not found";
+                return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { game_object_name });
 
             var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(controller_path);
             if (controller == null)
-                return $"Error: Animator Controller not found at '{controller_path}'";
+                return ToolResultFormatter.Error("ANIMATOR_CONTROLLER_NOT_FOUND", new { controller_path });
 
             var animator = go.GetComponent<Animator>();
             if (animator == null)

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 using System.Threading.Tasks;
+using Funplay.Editor.Tools.Helpers;
 using Newtonsoft.Json;
 using UnityEngine;
 
@@ -23,7 +24,9 @@ namespace Funplay.Editor.Tools
         public async Task<string> InvokeAsync(FunctionCall functionCall)
         {
             if (functionCall == null)
-                return "Error: null function call";
+                return ToolResultFormatter.Error("NULL_FUNCTION_CALL");
+            if (string.IsNullOrWhiteSpace(functionCall.FunctionName))
+                return ToolResultFormatter.Error("FUNCTION_NAME_REQUIRED");
 
             // Check manually registered tools first
             if (ToolRegistry.ManualTools.TryGetValue(functionCall.FunctionName, out var manualTool))
@@ -35,13 +38,15 @@ namespace Funplay.Editor.Tools
                 catch (Exception ex)
                 {
                     Debug.LogError($"[Funplay] Manual tool '{functionCall.FunctionName}' failed: {ex.Message}");
-                    return $"Error: {ex.Message}";
+                    return ToolResultFormatter.Error("MANUAL_TOOL_FAILED",
+                        new { tool = functionCall.FunctionName, message = ex.Message });
                 }
             }
 
             var method = ToolRegistry.GetMethod(functionCall.FunctionName);
             if (method == null)
-                return $"Error: Unknown function '{functionCall.FunctionName}'";
+                return ToolResultFormatter.Error("UNKNOWN_FUNCTION",
+                    new { function = functionCall.FunctionName });
 
             try
             {
@@ -53,12 +58,14 @@ namespace Funplay.Editor.Tools
             {
                 var inner = ex.InnerException ?? ex;
                 Debug.LogError($"[Funplay] Function '{functionCall.FunctionName}' failed: {inner.Message}\n{inner.StackTrace}");
-                return $"Error: {inner.Message}";
+                return ToolResultFormatter.Error("FUNCTION_FAILED",
+                    new { function = functionCall.FunctionName, message = inner.Message });
             }
             catch (Exception ex)
             {
                 Debug.LogError($"[Funplay] Function invoke error for '{functionCall.FunctionName}': {ex.Message}");
-                return $"Error: {ex.Message}";
+                return ToolResultFormatter.Error("FUNCTION_INVOKE_ERROR",
+                    new { function = functionCall.FunctionName, message = ex.Message });
             }
         }
 

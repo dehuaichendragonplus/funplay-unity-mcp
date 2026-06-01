@@ -50,7 +50,7 @@ namespace Funplay.Editor.Tools.Builtins
                 case "cylinder": type = PrimitiveType.Cylinder; break;
                 case "plane": type = PrimitiveType.Plane; break;
                 case "quad": type = PrimitiveType.Quad; break;
-                default: return Response.Error($"UNKNOWN_PRIMITIVE: '{primitive_type}'");
+                default: return Response.Error("UNKNOWN_PRIMITIVE", new { primitive_type });
             }
 
             var go = GameObject.CreatePrimitive(type);

@@ -1,6 +1,7 @@
 // Copyright (C) Funplay. Licensed under MIT.
 
 using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -17,7 +18,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var scene = EditorSceneManager.GetActiveScene();
             bool saved = EditorSceneManager.SaveScene(scene);
-            return saved ? $"Saved scene '{scene.name}'" : "Error: Failed to save scene";
+            return saved ? $"Saved scene '{scene.name}'" : ToolResultFormatter.Error("SCENE_SAVE_FAILED", new { scene = scene.name });
         }
 
         [Description("Open an existing scene by path")]
@@ -26,7 +27,7 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Path to the scene asset (e.g. 'Assets/Scenes/Main.unity')")] string path)
         {
             if (!System.IO.File.Exists(path))
-                return $"Error: Scene file not found at '{path}'";
+                return ToolResultFormatter.Error("SCENE_FILE_NOT_FOUND", new { path });
 
             EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo();
             EditorSceneManager.OpenScene(path);
@@ -117,9 +118,9 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Time scale value (0=paused, 1=normal, 2=double speed, etc.)")] float scale)
         {
             if (scale < 0f)
-                return "Error: Time scale cannot be negative";
+                return ToolResultFormatter.Error("INVALID_TIME_SCALE", new { scale, min = 0f });
             if (scale > 100f)
-                return "Error: Time scale too high (max 100)";
+                return ToolResultFormatter.Error("INVALID_TIME_SCALE", new { scale, max = 100f });
 
             float previousScale = UnityEngine.Time.timeScale;
             UnityEngine.Time.timeScale = scale;

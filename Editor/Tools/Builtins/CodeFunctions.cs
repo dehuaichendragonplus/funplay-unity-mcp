@@ -2,6 +2,7 @@
 using System;
 using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
 using System.IO;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 
 namespace Funplay.Editor.Tools.Builtins
@@ -37,7 +38,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var fullPath = ResolveProjectPath(path);
             if (!File.Exists(fullPath))
-                return $"Error: Script not found at '{path}'";
+                return ToolResultFormatter.Error("SCRIPT_NOT_FOUND", new { path });
 
             File.WriteAllText(fullPath, content);
             AssetDatabase.Refresh();
@@ -58,13 +59,13 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var fullPath = ResolveProjectPath(path);
             if (!File.Exists(fullPath))
-                return $"Error: Script not found at '{path}'";
+                return ToolResultFormatter.Error("SCRIPT_NOT_FOUND", new { path });
 
             var content = File.ReadAllText(fullPath);
 
             if (!content.Contains(old_text))
-                return $"Error: Could not find the specified text in '{path}'. " +
-                       "Make sure the text matches exactly, including whitespace and indentation.";
+                return ToolResultFormatter.Error("PATCH_TEXT_NOT_FOUND",
+                    new { path, hint = "Make sure old_text matches exactly, including whitespace and indentation." });
 
             int occurrences = 0;
             int index = 0;

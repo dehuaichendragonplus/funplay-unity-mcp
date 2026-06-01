@@ -3,6 +3,7 @@
 #if ENABLE_INPUT_SYSTEM
 using System;
 using System.ComponentModel;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -22,17 +23,17 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Action type: press, release, or tap", Required = false)] string action = "tap")
         {
             if (!EditorApplication.isPlaying)
-                return "Error: SimulateKeyPress only works in Play Mode.";
+                return ToolResultFormatter.ErrorMessage("PLAY_MODE_REQUIRED", "SimulateKeyPress only works in Play Mode.");
 
             try
             {
                 var keyboard = EnsureKeyboard();
                 if (keyboard == null)
-                    return "Error: No keyboard device found in Input System";
+                    return ToolResultFormatter.ErrorMessage("INPUT_DEVICE_NOT_FOUND", "No keyboard device found in Input System");
 
                 var keyControl = FindKey(keyboard, key);
                 if (keyControl == null)
-                    return $"Error: Key '{key}' not recognized. Examples: W, A, S, D, Space, LeftShift, E, Escape, 1, 2";
+                    return ToolResultFormatter.ErrorMessage("KEY_NOT_RECOGNIZED", $"Key '{key}' not recognized. Examples: W, A, S, D, Space, LeftShift, E, Escape, 1, 2");
 
                 switch ((action ?? "tap").Trim().ToLowerInvariant())
                 {
@@ -48,7 +49,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                return $"Error: {ex.Message}";
+                return ToolResultFormatter.Exception(ex);
             }
         }
 
@@ -59,13 +60,13 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Duration in seconds to hold the combo", Required = false)] float duration = 0.5f)
         {
             if (!EditorApplication.isPlaying)
-                return "Error: SimulateKeyCombo only works in Play Mode.";
+                return ToolResultFormatter.ErrorMessage("PLAY_MODE_REQUIRED", "SimulateKeyCombo only works in Play Mode.");
 
             try
             {
                 var keyboard = EnsureKeyboard();
                 if (keyboard == null)
-                    return "Error: No keyboard device found";
+                    return ToolResultFormatter.ErrorMessage("INPUT_DEVICE_NOT_FOUND", "No keyboard device found");
 
                 duration = Mathf.Clamp(duration, 0.05f, 5f);
                 var keyNames = (keys ?? string.Empty).Split(',');
@@ -102,7 +103,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                return $"Error: {ex.Message}";
+                return ToolResultFormatter.Exception(ex);
             }
         }
 
@@ -117,13 +118,13 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Mouse button: left, right, or middle", Required = false)] string button = "left")
         {
             if (!EditorApplication.isPlaying)
-                return "Error: SimulateMouseDrag only works in Play Mode.";
+                return ToolResultFormatter.ErrorMessage("PLAY_MODE_REQUIRED", "SimulateMouseDrag only works in Play Mode.");
 
             try
             {
                 var mouse = EnsureMouse();
                 if (mouse == null)
-                    return "Error: No mouse device found in Input System";
+                    return ToolResultFormatter.ErrorMessage("INPUT_DEVICE_NOT_FOUND", "No mouse device found in Input System");
 
                 duration = Mathf.Clamp(duration, 0.1f, 3f);
                 var pressButton = GetMouseButton(mouse, button);
@@ -158,7 +159,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                return $"Error: {ex.Message}";
+                return ToolResultFormatter.Exception(ex);
             }
         }
 

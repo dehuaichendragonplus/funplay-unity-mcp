@@ -208,15 +208,15 @@ url = "http://127.0.0.1:8765/"
 - MCP Server 默认从 `http://127.0.0.1:8765/` 启动。
 - 本地 MCP Server 配置保存在 `UserSettings/FunplayMcpSettings.json`。
 - 插件默认使用 `core` MCP 工具暴露配置，减少 AI 客户端的工具噪音；`core` 当前暴露 29 个高频工具，覆盖 `execute_code`、运行模式控制、输入模拟、截图、性能检查、日志、编译检查、结构化对象定位与组件编辑、编辑器选中与 prefab stage 状态读写，以及 `execute_menu_item` 兜底入口。如果你需要完整工具集，可在 MCP Server 窗口切换到 `full`，暴露全部 91 个工具。
-- `execute_code` safety checks 现在可在 MCP Server 窗口设置默认值，默认开启；客户端仍可在单次调用中用可选 `safety_checks` 参数显式覆盖。
-- 插件 debug 日志默认开启，可在 **Funplay > Plugin Settings** 中关闭；Warning 和 Error 始终会输出到 Unity Console。
+- `execute_code` safety checks 和更严格的文件系统 guard 现在可在 MCP Server 窗口设置默认值，默认开启；它会阻止明显破坏性片段、宽泛的 `System.IO` 写入、原始文件流、绝对路径、用户/系统目录路径和 `../` 穿越路径，但它不是完整沙箱。客户端仍可在单次调用中用可选 `safety_checks` 参数显式覆盖。
+- 插件 debug 日志默认关闭，可在 **Funplay > Plugin Settings** 中开启；Warning 和 Error 始终会输出到 Unity Console。
 - 所有已暴露的 MCP 工具都会直接执行，不再提供额外的 approval 开关。
 - **菜单：`Funplay > Check for Updates`** 可按安装来源自动更新：Git 安装会直接重新拉取，`.unitypackage` 导入会自动下载并导入最新版。
 
 ## 能力概览
 
 - **`execute_code` 主工具优先** — 核心体验围绕一个内存 C# 执行工具构建，适合复杂编辑器/运行态编排。详见下方 [`execute_code`：内存 C# 执行](#execute_code内存-c-执行)。
-- **默认安全检查** — `execute_code` 现在有持久化、默认开启的 safety toggle，适合 LM Studio 这类不明显暴露单次参数的客户端
+- **默认安全检查** — `execute_code` 现在有持久化、默认开启的 safety toggle，并包含更严格的文件系统 guard，适合 LM Studio 这类不明显暴露单次参数的客户端
 - **Play Mode 自动化闭环** — 进入运行模式、模拟键鼠输入、截图、查看日志、验证行为都能在同一 MCP 会话里完成
 - **内建项目上下文** — 直接提供项目状态、当前场景、选择对象、编译错误、控制台输出和 MCP 交互记录资源
 - **默认聚焦，必要时全量** — 默认 `core` 工具集更利于 AI 选工具，需要时可切到 `full` 暴露全部 91 个工具

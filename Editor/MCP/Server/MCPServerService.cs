@@ -10,6 +10,7 @@ using Funplay.Editor.State;
 using Funplay.Editor.Threading;
 using Funplay.Editor.Tools;
 using Funplay.Editor.Tools.Builtins;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEngine;
 
@@ -597,8 +598,7 @@ namespace Funplay.Editor.MCP.Server
             if (string.IsNullOrEmpty(scriptResult))
                 return false;
 
-            return scriptResult.StartsWith("Error:", StringComparison.OrdinalIgnoreCase) ||
-                   scriptResult.StartsWith("Compilation failed", StringComparison.OrdinalIgnoreCase);
+            return ToolResultFormatter.IsError(scriptResult);
         }
 
         private static void WaitForCompilationThen(Action onReady)

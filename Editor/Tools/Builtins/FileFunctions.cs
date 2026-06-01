@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
 using System.IO;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 
 namespace Funplay.Editor.Tools.Builtins
@@ -16,7 +17,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var fullPath = ResolveProjectPath(path);
             if (!File.Exists(fullPath))
-                return $"Error: File not found: {path}";
+                return ToolResultFormatter.Error("FILE_NOT_FOUND", new { path });
 
             var content = File.ReadAllText(fullPath);
             if (content.Length > 10000)
@@ -49,7 +50,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var fullPath = ResolveProjectPath(directory);
             if (!Directory.Exists(fullPath))
-                return $"Error: Directory not found: {directory}";
+                return ToolResultFormatter.Error("DIRECTORY_NOT_FOUND", new { directory });
 
             var files = Directory.GetFiles(fullPath, pattern, SearchOption.AllDirectories);
             if (files.Length == 0)
@@ -78,7 +79,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var fullPath = ResolveProjectPath(path);
             if (!Directory.Exists(fullPath))
-                return $"Error: Directory not found: {path}";
+                return ToolResultFormatter.Error("DIRECTORY_NOT_FOUND", new { path });
 
             var sb = new System.Text.StringBuilder();
             sb.AppendLine($"Contents of {path}:");

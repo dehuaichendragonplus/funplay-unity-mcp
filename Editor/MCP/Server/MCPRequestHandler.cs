@@ -50,7 +50,8 @@ namespace Funplay.Editor.MCP.Server
                 if (request.JsonRpc != "2.0")
                     return CreateErrorResponse(request.Id, -32600, "Invalid Request: jsonrpc must be '2.0'");
 
-                PluginDebugLogger.Log($"[Funplay MCP Server] Handling request: {request.Method}");
+                if (ShouldLogRequest(request.Method))
+                    PluginDebugLogger.Log($"[Funplay MCP Server] Handling request: {request.Method}");
 
                 return request.Method switch
                 {
@@ -254,6 +255,25 @@ namespace Funplay.Editor.MCP.Server
                 Id = requestId,
                 Error = new MCPError { Code = code, Message = message }
             };
+        }
+
+        private static bool ShouldLogRequest(string method)
+        {
+            switch (method)
+            {
+                case null:
+                case "initialize":
+                case "notifications/initialized":
+                case "notifications/cancelled":
+                case "resources/list":
+                case "resources/read":
+                case "resources/templates/list":
+                case "tools/list":
+                case "prompts/list":
+                    return false;
+                default:
+                    return !method.StartsWith("notifications/", StringComparison.Ordinal);
+            }
         }
     }
 }

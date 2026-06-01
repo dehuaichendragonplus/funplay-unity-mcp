@@ -6,6 +6,7 @@ using Funplay.Editor.DI;
 using Funplay.Editor.MCP.Server;
 using Funplay.Editor.Services;
 using Funplay.Editor.State;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEngine;
 
@@ -32,7 +33,7 @@ namespace Funplay.Editor.Tools.Builtins
 
                 var compilationService = GetCompilationService();
                 if (compilationService == null)
-                    return "Error: Compilation service is unavailable";
+                    return ToolResultFormatter.Error("COMPILATION_SERVICE_UNAVAILABLE");
 
                 var startTime = DateTime.UtcNow;
                 bool completed = await compilationService
@@ -40,18 +41,18 @@ namespace Funplay.Editor.Tools.Builtins
                     .ConfigureAwait(false);
 
                 if (!completed)
-                    return $"Error: Compilation timed out after {timeout_seconds}s (still compiling)";
+                    return ToolResultFormatter.Error("COMPILATION_TIMEOUT", new { timeout_seconds });
 
                 var issues = compilationService.GetCompilationErrors();
                 if (!string.Equals(issues, "No compilation errors detected.", StringComparison.Ordinal))
-                    return issues;
+                    return ToolResultFormatter.Error("COMPILATION_FAILED", new { issues });
 
                 double elapsed = (DateTime.UtcNow - startTime).TotalSeconds;
                 return $"Compilation complete ({elapsed:F1}s). No errors detected.";
             }
             catch (Exception ex)
             {
-                return $"Error: {ex.Message}";
+                return ToolResultFormatter.Exception(ex);
             }
         }
 
@@ -65,8 +66,10 @@ namespace Funplay.Editor.Tools.Builtins
         {
             if (EditorApplication.isPlaying)
             {
-                return "Error: Unity is in Play Mode. Unity does not process script recompilation " +
-                       "or domain reloads while playing. Call exit_play_mode first, then retry request_recompile.";
+                return ToolResultFormatter.Error("PLAY_MODE_ACTIVE", new
+                {
+                    hint = "Unity does not process script recompilation or domain reloads while playing. Call exit_play_mode first, then retry request_recompile."
+                });
             }
 
             MarkExternalSyncPending();
@@ -105,7 +108,7 @@ namespace Funplay.Editor.Tools.Builtins
             if (!string.Equals(issues, "No compilation errors or warnings detected.", StringComparison.Ordinal) &&
                 !string.Equals(issues, "No compilation errors detected.", StringComparison.Ordinal))
             {
-                return issues;
+                return ToolResultFormatter.Error("COMPILATION_FAILED", new { issues });
             }
 
             return "External changes imported. No compilation errors or warnings detected.";
@@ -120,7 +123,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                return $"Error: {ex.Message}";
+                return ToolResultFormatter.Exception(ex);
             }
         }
 
@@ -132,7 +135,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var compilationService = GetCompilationService();
             if (compilationService == null)
-                return "Error: Compilation service is unavailable";
+                return ToolResultFormatter.Error("COMPILATION_SERVICE_UNAVAILABLE");
 
             if (compilationService.IsCompiling)
                 return "Currently compiling... Please wait and try again.";

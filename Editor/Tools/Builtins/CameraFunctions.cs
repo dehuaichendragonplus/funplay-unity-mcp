@@ -2,6 +2,7 @@
 using System.Text;
 
 using DescriptionAttribute = System.ComponentModel.DescriptionAttribute;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEngine;
 
@@ -17,7 +18,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var camera = FindCamera(game_object_name);
             if (camera == null)
-                return $"Error: Camera not found{(game_object_name != null ? $" on '{game_object_name}'" : "")}";
+                return ToolResultFormatter.Error("CAMERA_NOT_FOUND", new { game_object_name });
 
             var sb = new StringBuilder();
             sb.AppendLine($"Camera: {camera.gameObject.name}");
@@ -49,7 +50,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var camera = FindCamera(game_object_name);
             if (camera == null)
-                return $"Error: Camera not found";
+                return ToolResultFormatter.Error("CAMERA_NOT_FOUND", new { game_object_name });
 
             Undo.RecordObject(camera, "Set Camera Projection");
 
@@ -80,7 +81,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var camera = FindCamera(game_object_name);
             if (camera == null)
-                return $"Error: Camera not found";
+                return ToolResultFormatter.Error("CAMERA_NOT_FOUND", new { game_object_name });
 
             Undo.RecordObject(camera, "Set Camera Settings");
             var changes = new StringBuilder();
@@ -131,7 +132,7 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var camera = FindCamera(game_object_name);
             if (camera == null)
-                return $"Error: Camera not found";
+                return ToolResultFormatter.Error("CAMERA_NOT_FOUND", new { game_object_name });
 
             Undo.RecordObject(camera, "Set Camera Culling Mask");
 

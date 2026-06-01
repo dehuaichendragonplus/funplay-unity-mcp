@@ -34,7 +34,7 @@ namespace Funplay.Editor.Tools.Builtins
                 camera = UnityEngine.Object.FindFirstObjectByType<Camera>();
 
             if (camera == null)
-                return "Error: No camera found in the scene. Add a Camera component to capture the Game View.";
+                return ToolResultFormatter.Error("CAMERA_NOT_FOUND", new { hint = "Add a Camera component to capture the Game View." });
 
             return CaptureWithUI(camera, width, height);
         }
@@ -47,11 +47,11 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var sceneView = SceneView.lastActiveSceneView;
             if (sceneView == null)
-                return "Error: No Scene View is currently open. Open a Scene View window first.";
+                return ToolResultFormatter.Error("SCENE_VIEW_NOT_OPEN", new { hint = "Open a Scene View window first." });
 
             var camera = sceneView.camera;
             if (camera == null)
-                return "Error: Scene View camera is not available.";
+                return ToolResultFormatter.Error("SCENE_VIEW_CAMERA_UNAVAILABLE");
 
             if (width <= 0 || height <= 0)
             {
@@ -361,7 +361,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                return $"Error: Failed to capture screenshot: {ex.Message}";
+                return ToolResultFormatter.Error("SCREENSHOT_CAPTURE_FAILED", new { message = ex.Message });
             }
             finally
             {
@@ -420,7 +420,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                return $"Error: Failed to capture screenshot: {ex.Message}";
+                return ToolResultFormatter.Error("SCREENSHOT_CAPTURE_FAILED", new { message = ex.Message });
             }
             finally
             {

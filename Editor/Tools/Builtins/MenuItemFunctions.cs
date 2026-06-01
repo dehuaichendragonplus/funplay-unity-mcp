@@ -24,7 +24,7 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Full menu path, e.g. 'GameObject/2D Object/Sprite'")] string menu_path)
         {
             if (string.IsNullOrWhiteSpace(menu_path))
-                return Response.Error("MENU_PATH_REQUIRED: menu_path cannot be empty.");
+                return Response.Error("MENU_PATH_REQUIRED", new { message = "menu_path cannot be empty." });
 
             try
             {
@@ -36,7 +36,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                return Response.Error($"MENU_EXECUTION_FAILED: {ex.Message}");
+                return Response.Error("MENU_EXECUTION_FAILED", new { message = ex.Message });
             }
         }
 
@@ -46,7 +46,7 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Full menu path to validate")] string menu_path)
         {
             if (string.IsNullOrWhiteSpace(menu_path))
-                return Response.Error("MENU_PATH_REQUIRED: menu_path cannot be empty.");
+                return Response.Error("MENU_PATH_REQUIRED", new { message = "menu_path cannot be empty." });
 
             // Unity has no public "menu exists" API; ExecuteMenuItem returns false for unknown items
             // but it also runs the item if it exists. Approximation: run it and report. Document this.
