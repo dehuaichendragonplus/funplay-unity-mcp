@@ -26,8 +26,10 @@ namespace Funplay.Editor.MCP.Server
             {
                 settings.ExecuteCodeSafetyChecksEnabled = evt.newValue;
             });
-            safetyToggle.style.marginBottom = 4;
+            safetyToggle.style.marginBottom = 2;
             parent.Add(safetyToggle);
+            AddHint(parent,
+                "Default for execute_code calls when safety_checks is omitted. Explicit safety_checks=false can still bypass this for trusted local calls.");
 
             var strictToggle = new Toggle("Strict filesystem guard");
             strictToggle.SetValueWithoutNotify(settings.ExecuteCodeStrictFilesystemSafetyEnabled);
@@ -35,8 +37,10 @@ namespace Funplay.Editor.MCP.Server
             {
                 settings.ExecuteCodeStrictFilesystemSafetyEnabled = evt.newValue;
             });
-            strictToggle.style.marginBottom = 4;
+            strictToggle.style.marginBottom = 2;
             parent.Add(strictToggle);
+            AddHint(parent,
+                "Adds checks for broad System.IO file writes, raw file streams, and absolute/user/system/traversal paths. This is a defensive guard, not a complete sandbox.");
 
             var projectNamespacesToggle = new Toggle("Auto-inject project namespaces");
             projectNamespacesToggle.SetValueWithoutNotify(settings.ExecuteCodeProjectNamespaceInjectionEnabled);
@@ -44,18 +48,21 @@ namespace Funplay.Editor.MCP.Server
             {
                 settings.ExecuteCodeProjectNamespaceInjectionEnabled = evt.newValue;
             });
-            projectNamespacesToggle.style.marginBottom = 4;
+            projectNamespacesToggle.style.marginBottom = 2;
             parent.Add(projectNamespacesToggle);
+            AddHint(parent,
+                "Off by default. When enabled, only namespaces from loaded Library/ScriptAssemblies assemblies are injected; explicit using directives remain the least ambiguous option.");
+        }
 
-            var safetyHint = new Label(
-                "Strict guard blocks obvious destructive code, broad System.IO file writes, raw file streams, and absolute/user/system/traversal paths. " +
-                "This is a defensive guard, not a complete sandbox. Explicit safety_checks=false still bypasses it for trusted local calls. " +
-                "Project namespace auto-injection is off by default; when enabled, it only uses namespaces from loaded project assemblies.");
-            safetyHint.style.fontSize = 10;
-            safetyHint.style.color = new Color(0.65f, 0.65f, 0.65f);
-            safetyHint.style.marginBottom = 10;
-            safetyHint.style.whiteSpace = WhiteSpace.Normal;
-            parent.Add(safetyHint);
+        private static void AddHint(VisualElement parent, string text)
+        {
+            var hint = new Label(text);
+            hint.style.fontSize = 10;
+            hint.style.color = new Color(0.65f, 0.65f, 0.65f);
+            hint.style.marginLeft = 18;
+            hint.style.marginBottom = 8;
+            hint.style.whiteSpace = WhiteSpace.Normal;
+            parent.Add(hint);
         }
     }
 }

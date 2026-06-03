@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.4.1] - 2026-06-03
+
+### Changed
+- Narrowed optional `execute_code` project namespace auto-injection to loaded assemblies under `Library/ScriptAssemblies`, reducing wrapper size and type-name ambiguity when the opt-in setting is enabled.
+
+### Fixed
+- Downgraded expected response-write failures after client disconnects or domain reloads so `socket has been shut down` no longer appears as a Unity Console error.
+- Marked non-resumed tools interrupted by script recompilation as `Interrupted` in Recent Activity instead of showing a misleading green `OK`.
+
 ## [0.4.0] - 2026-06-02
 
 ### Changed

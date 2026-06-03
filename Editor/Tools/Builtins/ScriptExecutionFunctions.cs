@@ -44,7 +44,7 @@ namespace Funplay.Editor.Tools.Builtins
                      "and, when strict filesystem safety is enabled, broad System.IO writes plus obvious absolute/system/traversal paths. " +
                      "This is a defensive layer, not a full sandbox. If omitted, the MCP Settings window's default safety-check setting is used " +
                      "(enabled by default); explicitly passing true or false overrides that default. Project namespaces are not auto-injected " +
-                     "by default; add `using` directives in the snippet, or enable the legacy convenience toggle in the MCP Settings window. " +
+                     "by default; add `using` directives in the snippet, or enable the ScriptAssemblies-based convenience toggle in the MCP Settings window. " +
                      "Every invocation is appended to a session-scoped history (see get_execute_code_history / replay_execute_code).")]
         [SceneEditingTool]
         public static async Task<object> ExecuteCode(
@@ -547,7 +547,7 @@ public static class {className}
             var namespaces = new HashSet<string>(StringComparer.Ordinal);
             foreach (var assembly in assemblies)
             {
-                if (!IsProjectAssembly(assembly, projectRoot))
+                if (!IsProjectScriptAssembly(assembly, projectRoot))
                     continue;
 
                 foreach (var type in GetLoadableTypes(assembly))
@@ -566,7 +566,7 @@ public static class {className}
             return sb.ToString();
         }
 
-        private static bool IsProjectAssembly(Assembly assembly, string projectRoot)
+        private static bool IsProjectScriptAssembly(Assembly assembly, string projectRoot)
         {
             if (assembly == null || assembly.IsDynamic)
                 return false;
@@ -577,14 +577,23 @@ public static class {className}
                 if (string.IsNullOrEmpty(location) || !File.Exists(location))
                     return false;
 
-                var normalizedLocation = NormalizePath(location);
-                var normalizedProjectRoot = NormalizePath(projectRoot);
-                return normalizedLocation.StartsWith(normalizedProjectRoot + "/", StringComparison.OrdinalIgnoreCase);
+                return IsProjectScriptAssemblyPath(location, projectRoot);
             }
             catch
             {
                 return false;
             }
+        }
+
+        internal static bool IsProjectScriptAssemblyPath(string location, string projectRoot)
+        {
+            if (string.IsNullOrEmpty(location) || string.IsNullOrEmpty(projectRoot))
+                return false;
+
+            var normalizedLocation = NormalizePath(location);
+            var normalizedProjectRoot = NormalizePath(projectRoot);
+            return normalizedLocation.StartsWith(normalizedProjectRoot + "/", StringComparison.OrdinalIgnoreCase) &&
+                   normalizedLocation.IndexOf("/Library/ScriptAssemblies/", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)

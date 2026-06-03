@@ -8,6 +8,7 @@ namespace Funplay.Editor.MCP.Server
     internal enum MCPToolCallStatus
     {
         Success,
+        Interrupted,
         Error
     }
 

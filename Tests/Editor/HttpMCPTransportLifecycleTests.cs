@@ -4,6 +4,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -11,6 +12,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Funplay.Editor.MCP.Server;
+using Funplay.Editor.Tools.Helpers;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -21,6 +23,39 @@ namespace Funplay.Editor
     {
         private const string ServerName = "Funplay MCP Server - Test Project";
         private const string ProjectIdentityA = "project-a";
+
+        [Test]
+        public void ClientDisconnectDetection_CoversExpectedResponseWriteFailures()
+        {
+            Assert.IsTrue(HttpMCPTransport.IsClientDisconnectException(
+                new IOException("Unable to read data from the transport connection: The socket has been shut down.")));
+            Assert.IsTrue(HttpMCPTransport.IsClientDisconnectException(
+                new ObjectDisposedException("NetworkStream")));
+            Assert.IsFalse(HttpMCPTransport.IsClientDisconnectException(
+                new InvalidOperationException("Unexpected transport failure.")));
+        }
+
+        [Test]
+        public void RecentActivityBadge_InterruptedIsNotDisplayedAsOk()
+        {
+            Assert.AreEqual("OK", FunplayMCPRecentActivityPanel.GetBadgeText(MCPToolCallStatus.Success));
+            Assert.AreEqual("INT", FunplayMCPRecentActivityPanel.GetBadgeText(MCPToolCallStatus.Interrupted));
+            Assert.AreEqual("ERR", FunplayMCPRecentActivityPanel.GetBadgeText(MCPToolCallStatus.Error));
+        }
+
+        [Test]
+        public void InterruptedToolRecoveryStatus_EmptyContinuationIsInterrupted()
+        {
+            Assert.AreEqual(
+                MCPToolCallStatus.Interrupted,
+                MCPServerService.DetermineInterruptedToolRecoveryStatus(null));
+            Assert.AreEqual(
+                MCPToolCallStatus.Success,
+                MCPServerService.DetermineInterruptedToolRecoveryStatus("Continuation completed."));
+            Assert.AreEqual(
+                MCPToolCallStatus.Error,
+                MCPServerService.DetermineInterruptedToolRecoveryStatus(ToolResultFormatter.Error("TEST_ERROR")));
+        }
 
         [UnityTest]
         public IEnumerator StartAsync_WhenPortIsAlreadyOwned_ReturnsFalseWithoutStoppingOwner()

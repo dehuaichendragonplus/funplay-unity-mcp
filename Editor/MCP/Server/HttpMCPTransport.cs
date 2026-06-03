@@ -417,10 +417,62 @@ namespace Funplay.Editor.MCP.Server
                 var json = SerializeResponse(mcpResponse);
                 await SendRawResponseAsync(stream, 200, "OK", "application/json; charset=utf-8", json, ct);
             }
+            catch (Exception ex) when (IsExpectedClientDisconnect(ex, ct))
+            {
+                PluginDebugLogger.Log($"[Funplay MCP Server] Response not sent because the client disconnected: {ex.Message}");
+            }
             catch (Exception ex)
             {
                 Debug.LogError($"[Funplay MCP Server] Failed to send response: {ex.Message}");
             }
+        }
+
+        private bool IsExpectedClientDisconnect(Exception ex, CancellationToken ct)
+        {
+            return ct.IsCancellationRequested || !_isRunning || IsClientDisconnectException(ex);
+        }
+
+        internal static bool IsClientDisconnectException(Exception ex)
+        {
+            while (ex != null)
+            {
+                if (ex is OperationCanceledException ||
+                    ex is ObjectDisposedException)
+                {
+                    return true;
+                }
+
+                if (ex is SocketException socketException &&
+                    IsClientDisconnectSocketError(socketException.SocketErrorCode))
+                {
+                    return true;
+                }
+
+                var message = ex.Message ?? string.Empty;
+                if (message.IndexOf("socket has been shut down", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    message.IndexOf("broken pipe", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    message.IndexOf("connection reset", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    message.IndexOf("connection was aborted", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    message.IndexOf("cannot access a disposed object", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+
+                ex = ex.InnerException;
+            }
+
+            return false;
+        }
+
+        private static bool IsClientDisconnectSocketError(SocketError error)
+        {
+            return error == SocketError.ConnectionReset ||
+                   error == SocketError.ConnectionAborted ||
+                   error == SocketError.NetworkReset ||
+                   error == SocketError.NotConnected ||
+                   error == SocketError.Shutdown ||
+                   error == SocketError.OperationAborted ||
+                   error == SocketError.Interrupted;
         }
 
         private Task SendOptionsResponseAsync(NetworkStream stream, CancellationToken ct)

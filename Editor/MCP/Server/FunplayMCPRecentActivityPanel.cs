@@ -91,8 +91,8 @@ namespace Funplay.Editor.MCP.Server
 
         private void AddRow(MCPLogEntry entry)
         {
-            bool isOk = entry.Status == MCPToolCallStatus.Success;
-            var accentColor = isOk ? new Color(0.3f, 0.75f, 0.4f) : new Color(0.9f, 0.35f, 0.35f);
+            var badgeText = GetBadgeText(entry.Status);
+            var accentColor = GetAccentColor(entry.Status);
 
             var card = new VisualElement();
             card.style.backgroundColor = new Color(0.19f, 0.19f, 0.19f);
@@ -126,7 +126,7 @@ namespace Funplay.Editor.MCP.Server
             toolLabel.style.flexGrow = 1;
             topRow.Add(toolLabel);
 
-            var badge = new Label(isOk ? "OK" : "ERR");
+            var badge = new Label(badgeText);
             badge.style.fontSize = 9;
             badge.style.unityFontStyleAndWeight = FontStyle.Bold;
             badge.style.color = Color.white;
@@ -162,6 +162,32 @@ namespace Funplay.Editor.MCP.Server
             }
 
             _scrollView?.contentContainer.Add(card);
+        }
+
+        internal static string GetBadgeText(MCPToolCallStatus status)
+        {
+            switch (status)
+            {
+                case MCPToolCallStatus.Success:
+                    return "OK";
+                case MCPToolCallStatus.Interrupted:
+                    return "INT";
+                default:
+                    return "ERR";
+            }
+        }
+
+        private static Color GetAccentColor(MCPToolCallStatus status)
+        {
+            switch (status)
+            {
+                case MCPToolCallStatus.Success:
+                    return new Color(0.3f, 0.75f, 0.4f);
+                case MCPToolCallStatus.Interrupted:
+                    return new Color(0.95f, 0.68f, 0.25f);
+                default:
+                    return new Color(0.9f, 0.35f, 0.35f);
+            }
         }
 
         private bool TryCreateImagePreview(string imageDataUri, out Image preview)

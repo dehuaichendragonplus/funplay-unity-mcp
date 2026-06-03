@@ -59,15 +59,35 @@ namespace Funplay.Editor.Tests
         }
 
         [Test]
-        public void ReachableProjectNamespaceUsings_AreDerivedFromLoadedProjectAssemblies()
+        public void ReachableProjectNamespaceUsings_AreDerivedFromLoadedScriptAssemblies()
         {
             var projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
             var usings = ScriptExecutionFunctions.GetReachableProjectNamespaceUsings(
-                new[] { typeof(ScriptExecutionFunctions).Assembly },
+                new[] { typeof(string).Assembly, typeof(ScriptExecutionFunctions).Assembly },
                 projectRoot);
 
             StringAssert.Contains("using Funplay.Editor.Tools.Builtins;", usings);
+            Assert.IsFalse(usings.Contains("using System;"), usings);
             Assert.IsFalse(usings.Contains("Funplay.Repro.Unreachable"), usings);
+        }
+
+        [Test]
+        public void ProjectScriptAssemblyPath_OnlyAllowsLibraryScriptAssembliesUnderProject()
+        {
+            var projectRoot = Path.Combine(Path.GetTempPath(), "Funplay Project");
+
+            Assert.IsTrue(ScriptExecutionFunctions.IsProjectScriptAssemblyPath(
+                Path.Combine(projectRoot, "Library", "ScriptAssemblies", "Game.Editor.dll"),
+                projectRoot));
+            Assert.IsFalse(ScriptExecutionFunctions.IsProjectScriptAssemblyPath(
+                Path.Combine(projectRoot, "Library", "PackageCache", "com.example", "Example.dll"),
+                projectRoot));
+            Assert.IsFalse(ScriptExecutionFunctions.IsProjectScriptAssemblyPath(
+                Path.Combine(projectRoot, "Packages", "com.example", "Example.dll"),
+                projectRoot));
+            Assert.IsFalse(ScriptExecutionFunctions.IsProjectScriptAssemblyPath(
+                Path.Combine(projectRoot + "Other", "Library", "ScriptAssemblies", "Game.Editor.dll"),
+                projectRoot));
         }
 
         private static void AssertBlocked(string code, bool strict, string expectedReasonPart)

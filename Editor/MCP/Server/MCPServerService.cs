@@ -545,9 +545,7 @@ namespace Funplay.Editor.MCP.Server
                     summary += " The MCP server recovered after reload. Re-run the tool if more work is needed.";
                 }
 
-                var status = IsErrorResult(scriptResult)
-                    ? MCPToolCallStatus.Error
-                    : MCPToolCallStatus.Success;
+                var status = DetermineInterruptedToolRecoveryStatus(scriptResult);
 
                 PublishRecoverySummary(interrupted, summary, status);
             });
@@ -587,7 +585,7 @@ namespace Funplay.Editor.MCP.Server
             DomainReloadHandler.StoreRecoveryInfo(toolName, status.ToString(), summary);
             InteractionLog.Add(toolName, status, summary);
 
-            if (status == MCPToolCallStatus.Success)
+            if (status == MCPToolCallStatus.Success || status == MCPToolCallStatus.Interrupted)
                 PluginDebugLogger.Log($"[Funplay MCP Server] Recovery completed for '{toolName}'. {summary}");
             else
                 Debug.LogWarning($"[Funplay MCP Server] Recovery detected for '{toolName}'. {summary}");
@@ -599,6 +597,16 @@ namespace Funplay.Editor.MCP.Server
                 return false;
 
             return ToolResultFormatter.IsError(scriptResult);
+        }
+
+        internal static MCPToolCallStatus DetermineInterruptedToolRecoveryStatus(string scriptResult)
+        {
+            if (IsErrorResult(scriptResult))
+                return MCPToolCallStatus.Error;
+
+            return string.IsNullOrEmpty(scriptResult)
+                ? MCPToolCallStatus.Interrupted
+                : MCPToolCallStatus.Success;
         }
 
         private static void WaitForCompilationThen(Action onReady)
