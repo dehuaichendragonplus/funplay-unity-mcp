@@ -21,11 +21,14 @@ namespace Funplay.Editor
 
                 Assert.IsTrue(controller.ExecuteCodeSafetyChecksEnabled);
                 Assert.IsTrue(controller.ExecuteCodeStrictFilesystemSafetyEnabled);
+                Assert.IsFalse(controller.ExecuteCodeProjectNamespaceInjectionEnabled);
                 Assert.IsFalse(controller.PluginDebugLoggingEnabled);
                 StringAssert.Contains("\"executeCodeSafetyChecksEnabled\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeSafetyChecksConfigured\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeStrictFilesystemSafetyEnabled\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeStrictFilesystemSafetyConfigured\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"executeCodeProjectNamespaceInjectionEnabled\": false", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"executeCodeProjectNamespaceInjectionConfigured\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"pluginDebugLoggingEnabled\": false", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"pluginDebugLoggingConfigured\": true", ReadSettingsJson(projectPath));
             }
@@ -52,11 +55,14 @@ namespace Funplay.Editor
 
                 Assert.IsTrue(controller.ExecuteCodeSafetyChecksEnabled);
                 Assert.IsTrue(controller.ExecuteCodeStrictFilesystemSafetyEnabled);
+                Assert.IsFalse(controller.ExecuteCodeProjectNamespaceInjectionEnabled);
                 Assert.IsFalse(controller.PluginDebugLoggingEnabled);
                 StringAssert.Contains("\"executeCodeSafetyChecksEnabled\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeSafetyChecksConfigured\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeStrictFilesystemSafetyEnabled\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeStrictFilesystemSafetyConfigured\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"executeCodeProjectNamespaceInjectionEnabled\": false", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"executeCodeProjectNamespaceInjectionConfigured\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"pluginDebugLoggingEnabled\": false", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"pluginDebugLoggingConfigured\": true", ReadSettingsJson(projectPath));
             }
@@ -103,6 +109,28 @@ namespace Funplay.Editor
                 Assert.IsFalse(reloaded.ExecuteCodeSafetyChecksEnabled);
                 StringAssert.Contains("\"executeCodeSafetyChecksEnabled\": false", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeSafetyChecksConfigured\": true", ReadSettingsJson(projectPath));
+            }
+            finally
+            {
+                DeleteTempProjectPath(projectPath);
+            }
+        }
+
+        [Test]
+        public void ExecuteCodeProjectNamespaceInjectionSetting_PersistsTrueValue()
+        {
+            var projectPath = CreateTempProjectPath();
+
+            try
+            {
+                var controller = new SettingsController(new TestApplicationPaths(projectPath));
+                controller.ExecuteCodeProjectNamespaceInjectionEnabled = true;
+
+                var reloaded = new SettingsController(new TestApplicationPaths(projectPath));
+
+                Assert.IsTrue(reloaded.ExecuteCodeProjectNamespaceInjectionEnabled);
+                StringAssert.Contains("\"executeCodeProjectNamespaceInjectionEnabled\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"executeCodeProjectNamespaceInjectionConfigured\": true", ReadSettingsJson(projectPath));
             }
             finally
             {

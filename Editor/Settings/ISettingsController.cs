@@ -16,6 +16,7 @@ namespace Funplay.Editor.Settings
         string MCPSelectedConfigTarget { get; set; }
         bool ExecuteCodeSafetyChecksEnabled { get; set; }
         bool ExecuteCodeStrictFilesystemSafetyEnabled { get; set; }
+        bool ExecuteCodeProjectNamespaceInjectionEnabled { get; set; }
         bool PluginDebugLoggingEnabled { get; set; }
 
         event Action OnSettingsChanged;

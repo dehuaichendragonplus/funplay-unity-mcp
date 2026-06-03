@@ -89,8 +89,6 @@ namespace Funplay.Editor.MCP.Server
                     () => _headerStatusPanel?.RefreshStatus())
                 .AddTo(mainContainer);
 
-            FunplayMCPSafetyPanel.AddTo(mainContainer, _settingsController);
-
             new FunplayMCPClientConfigPanel(
                     _settingsController,
                     _mcpServer,

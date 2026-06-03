@@ -22,11 +22,11 @@ namespace Funplay.Editor.MCP.Server
         private Toggle _debugLoggingToggle;
         private Label _debugStatusLabel;
 
-        [MenuItem("Funplay/Plugin Settings")]
+        [MenuItem("Funplay/MCP Settings")]
         public static void ShowWindow()
         {
-            var window = GetWindow<FunplayPluginSettingsWindow>("Plugin Settings");
-            window.minSize = new Vector2(360, 220);
+            var window = GetWindow<FunplayPluginSettingsWindow>("MCP Settings");
+            window.minSize = new Vector2(360, 320);
             window.Show();
         }
 
@@ -61,19 +61,24 @@ namespace Funplay.Editor.MCP.Server
             rootVisualElement.style.paddingTop = 10;
             rootVisualElement.style.paddingBottom = 10;
 
-            var title = new Label("Plugin Settings");
+            var title = new Label("MCP Settings");
             title.style.fontSize = 17;
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
             title.style.color = Color.white;
             title.style.marginBottom = 4;
             rootVisualElement.Add(title);
 
-            var hint = new Label("Project-level settings for the Funplay Unity MCP plugin. Debug logging is disabled by default.");
+            var hint = new Label("Project-level settings for the Funplay Unity MCP plugin. Safety checks and debug logging are stored per project.");
             hint.style.fontSize = 11;
             hint.style.color = new Color(0.65f, 0.65f, 0.65f);
             hint.style.whiteSpace = WhiteSpace.Normal;
             hint.style.marginBottom = 10;
             rootVisualElement.Add(hint);
+
+            var safetySection = CreateSection();
+            safetySection.style.marginBottom = 8;
+            FunplayMCPSafetyPanel.AddTo(safetySection, _settingsController);
+            rootVisualElement.Add(safetySection);
 
             var debugSection = CreateSection();
             debugSection.Add(CreateSectionHeader("Debug"));

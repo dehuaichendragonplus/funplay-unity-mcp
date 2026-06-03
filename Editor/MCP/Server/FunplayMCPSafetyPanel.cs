@@ -38,9 +38,19 @@ namespace Funplay.Editor.MCP.Server
             strictToggle.style.marginBottom = 4;
             parent.Add(strictToggle);
 
+            var projectNamespacesToggle = new Toggle("Auto-inject project namespaces");
+            projectNamespacesToggle.SetValueWithoutNotify(settings.ExecuteCodeProjectNamespaceInjectionEnabled);
+            projectNamespacesToggle.RegisterValueChangedCallback(evt =>
+            {
+                settings.ExecuteCodeProjectNamespaceInjectionEnabled = evt.newValue;
+            });
+            projectNamespacesToggle.style.marginBottom = 4;
+            parent.Add(projectNamespacesToggle);
+
             var safetyHint = new Label(
                 "Strict guard blocks obvious destructive code, broad System.IO file writes, raw file streams, and absolute/user/system/traversal paths. " +
-                "This is a defensive guard, not a complete sandbox. Explicit safety_checks=false still bypasses it for trusted local calls.");
+                "This is a defensive guard, not a complete sandbox. Explicit safety_checks=false still bypasses it for trusted local calls. " +
+                "Project namespace auto-injection is off by default; when enabled, it only uses namespaces from loaded project assemblies.");
             safetyHint.style.fontSize = 10;
             safetyHint.style.color = new Color(0.65f, 0.65f, 0.65f);
             safetyHint.style.marginBottom = 10;

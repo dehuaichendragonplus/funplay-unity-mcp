@@ -563,7 +563,7 @@ NODE
 
 ## Unity C# Patterns
 
-Use fully qualified types if the snippet environment or injected project code makes `using` statements unreliable:
+Add explicit `using` directives or use fully qualified types for project code. `execute_code` does not auto-inject project namespaces by default:
 
 ```csharp
 var root = UnityEngine.GameObject.Find(""PracticeInGameUiRoot"");

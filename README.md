@@ -60,7 +60,7 @@ The server starts on `http://127.0.0.1:8765/` by default.
 
 Open **Funplay → Tool Exposure** if you want to edit the exact tools exposed by `core` or `full`.
 
-Open **Funplay → Plugin Settings** if you need to adjust plugin debug logging while troubleshooting.
+Open **Funplay → MCP Settings** if you need to adjust `execute_code` safety defaults or plugin debug logging.
 
 ### 3. Configure Your AI Client
 
@@ -206,8 +206,8 @@ Open your AI client and try: *"Create a 3D platformer level with 5 floating plat
 - The MCP server starts on `http://127.0.0.1:8765/` by default.
 - Local MCP server settings are stored in `UserSettings/FunplayMcpSettings.json`.
 - The package defaults to the `core` MCP tool profile to reduce tool-list noise for AI clients. `core` currently exposes 29 high-signal tools centered on `execute_code`, play mode control, input simulation, screenshots, performance inspection, logs, compilation checks, structured object location and component editing, editor selection / prefab-stage state, and `execute_menu_item` as a low-friction fallback. Switch to `full` in the MCP Server window if you want all 91 tools exposed.
-- `execute_code` safety checks and the stricter filesystem guard are enabled by default from the MCP Server window. The guard blocks obvious destructive snippets, broad `System.IO` writes, raw file streams, and absolute/user/system/traversal paths, but it is not a complete sandbox. Clients may still override the default per call with the optional `safety_checks` argument.
-- Plugin debug logging is off by default and can be enabled from **Funplay > Plugin Settings**. Warnings and errors are always written to the Unity Console.
+- `execute_code` safety checks and the stricter filesystem guard are enabled by default from **Funplay > MCP Settings**. The guard blocks obvious destructive snippets, broad `System.IO` writes, raw file streams, and absolute/user/system/traversal paths, but it is not a complete sandbox. Clients may still override the default per call with the optional `safety_checks` argument.
+- Plugin debug logging is off by default and can also be enabled from **Funplay > MCP Settings**. Warnings and errors are always written to the Unity Console.
 - All exposed MCP tools run directly. There is no extra approval toggle.
 - **Menu: `Funplay > Check for Updates`** can refresh Git installs in place or download and import the latest `unitypackage` automatically.
 
@@ -232,7 +232,7 @@ Open your AI client and try: *"Create a 3D platformer level with 5 floating plat
 - **One-Click Client Configuration** — Generate MCP config entries for Claude Code, Cursor, LM Studio, VS Code, Kiro, Trae, Codex, and similar clients directly from the Unity window
 - **Tool Exposure Control** — Edit the exact tools exposed by `core` and `full`
 - **Project Skills Manager** — Configure project-level skills for supported AI clients, currently installing the default `unity-mcp-workflow` skill
-- **Plugin Settings** — Enable verbose plugin debug logging when troubleshooting MCP connections or tool execution
+- **MCP Settings** — Adjust `execute_code` safety defaults and enable verbose plugin debug logging when troubleshooting MCP connections or tool execution
 - **Vendor Agnostic** — Works with any AI client that supports MCP: Claude Code, Cursor, LM Studio, Windsurf, Codex, VS Code Copilot, etc.
 
 ## `execute_code`: In-Memory C# Execution

@@ -1,8 +1,10 @@
 // Copyright (C) Funplay. Licensed under MIT.
 
+using System.IO;
 using Funplay.Editor.Tools.Builtins;
 using Funplay.Editor.Tools.Helpers;
 using NUnit.Framework;
+using UnityEngine;
 
 namespace Funplay.Editor.Tests
 {
@@ -40,6 +42,32 @@ namespace Funplay.Editor.Tests
             Assert.IsTrue(ToolResultFormatter.IsError(error));
             Assert.IsFalse(ToolResultFormatter.IsError("Error: legacy"));
             Assert.IsFalse(ToolResultFormatter.IsError("{\"success\":true,\"message\":\"ok\"}"));
+        }
+
+        [Test]
+        public void BuildCodeForCompilation_ProjectNamespaceInjectionDisabled_DoesNotInjectProjectNamespaces()
+        {
+            var fullCode = ScriptExecutionFunctions.BuildCodeForCompilation(
+                "public class Smoke { public static string Run() { return \"ok\"; } }",
+                "TempScript",
+                false,
+                out var actualClassName);
+
+            Assert.AreEqual("Smoke", actualClassName);
+            Assert.IsFalse(fullCode.Contains("using Funplay.Editor.Tools.Builtins;"), fullCode);
+            Assert.IsFalse(fullCode.Contains("using Funplay.Editor.Tests;"), fullCode);
+        }
+
+        [Test]
+        public void ReachableProjectNamespaceUsings_AreDerivedFromLoadedProjectAssemblies()
+        {
+            var projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+            var usings = ScriptExecutionFunctions.GetReachableProjectNamespaceUsings(
+                new[] { typeof(ScriptExecutionFunctions).Assembly },
+                projectRoot);
+
+            StringAssert.Contains("using Funplay.Editor.Tools.Builtins;", usings);
+            Assert.IsFalse(usings.Contains("Funplay.Repro.Unreachable"), usings);
         }
 
         private static void AssertBlocked(string code, bool strict, string expectedReasonPart)

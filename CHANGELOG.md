@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.4.0] - 2026-06-02
+
+### Changed
+- `execute_code` no longer auto-injects project namespaces by default. The optional MCP Settings toggle now derives namespaces from loaded project assemblies instead of regex-scanning source files, avoiding source-only, conditional, or asmdef-isolated namespaces that can make every snippet fail with `COMPILATION_FAILED`. (#9)
+- Moved `execute_code` safety controls out of the MCP Server window and into **Funplay > MCP Settings** alongside debug logging.
+
 ## [0.3.9] - 2026-06-01
 
 ### Added

@@ -42,13 +42,14 @@ namespace Funplay.Editor.Tools.Builtins
                      "safety_checks blocks a small set of obviously dangerous patterns " +
                      "(File.Delete, Process.Start, while(true), Environment.Exit, AssetDatabase.DeleteAsset, etc) " +
                      "and, when strict filesystem safety is enabled, broad System.IO writes plus obvious absolute/system/traversal paths. " +
-                     "This is a defensive layer, not a full sandbox. If omitted, the MCP Server window's default safety-check setting is used " +
-                     "(enabled by default); explicitly passing true or false overrides that default. " +
+                     "This is a defensive layer, not a full sandbox. If omitted, the MCP Settings window's default safety-check setting is used " +
+                     "(enabled by default); explicitly passing true or false overrides that default. Project namespaces are not auto-injected " +
+                     "by default; add `using` directives in the snippet, or enable the legacy convenience toggle in the MCP Settings window. " +
                      "Every invocation is appended to a session-scoped history (see get_execute_code_history / replay_execute_code).")]
         [SceneEditingTool]
         public static async Task<object> ExecuteCode(
             [ToolParam("C# code to execute. See description for IFunplayCommand vs legacy Run() templates.")] string code,
-            [ToolParam("If true, reject the call before compile when the code contains obviously dangerous patterns. If omitted, uses the MCP Server window default.", Required = false)] bool? safety_checks = null)
+            [ToolParam("If true, reject the call before compile when the code contains obviously dangerous patterns. If omitted, uses the MCP Settings window default.", Required = false)] bool? safety_checks = null)
         {
             var effectiveSafetyChecks = ResolveSafetyChecks(safety_checks);
             if (effectiveSafetyChecks)
@@ -62,7 +63,7 @@ namespace Funplay.Editor.Tools.Builtins
                             pattern,
                             reason,
                             strict_filesystem_checks = strictFilesystemChecks,
-                            hint = "Disable the strict filesystem guard in the MCP Server window or pass safety_checks=false only for trusted local calls."
+                            hint = "Disable the strict filesystem guard in the MCP Settings window or pass safety_checks=false only for trusted local calls."
                         });
                     AppendHistory(code, false, $"Blocked: {reason}");
                     return blocked;
@@ -81,22 +82,11 @@ namespace Funplay.Editor.Tools.Builtins
             }
 
             var className = "TempScript_" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            var actualClassName = className;
-            var projectUsings = GetProjectNamespaceUsings();
-
-            string fullCode;
-            if (code.Contains("class "))
-            {
-                var match = Regex.Match(code, @"class\s+(\w+)");
-                if (match.Success)
-                    actualClassName = match.Groups[1].Value;
-
-                fullCode = PrependMissingUsings(code, projectUsings);
-            }
-            else
-            {
-                fullCode = WrapCode(code, className, projectUsings);
-            }
+            var fullCode = BuildCodeForCompilation(
+                code,
+                className,
+                ResolveProjectNamespaceInjection(),
+                out var actualClassName);
 
             try
             {
@@ -144,11 +134,11 @@ namespace Funplay.Editor.Tools.Builtins
 
         [Description("Re-run a past execute_code invocation by index (use get_execute_code_history to discover indices). " +
                      "The original code is re-compiled and executed; this also appends a new history entry. " +
-                     "Pass safety_checks to override the MCP Server window default.")]
+                     "Pass safety_checks to override the MCP Settings window default.")]
         [SceneEditingTool]
         public static async Task<object> ReplayExecuteCode(
             [ToolParam("History index to replay (as returned by get_execute_code_history).")] int index,
-            [ToolParam("If true, re-evaluate the safety blocklist before re-running. If omitted, uses the MCP Server window default.", Required = false)] bool? safety_checks = null)
+            [ToolParam("If true, re-evaluate the safety blocklist before re-running. If omitted, uses the MCP Settings window default.", Required = false)] bool? safety_checks = null)
         {
             var entries = LoadHistory().entries;
             if (entries.Count == 0)
@@ -190,6 +180,12 @@ namespace Funplay.Editor.Tools.Builtins
         {
             var settings = RootScopeServices.Services?.GetService(typeof(ISettingsController)) as ISettingsController;
             return settings?.ExecuteCodeStrictFilesystemSafetyEnabled ?? true;
+        }
+
+        private static bool ResolveProjectNamespaceInjection()
+        {
+            var settings = RootScopeServices.Services?.GetService(typeof(ISettingsController)) as ISettingsController;
+            return settings?.ExecuteCodeProjectNamespaceInjectionEnabled ?? false;
         }
 
         [Serializable]
@@ -492,6 +488,27 @@ namespace Funplay.Editor.Tools.Builtins
             }
         }
 
+        internal static string BuildCodeForCompilation(
+            string code,
+            string className,
+            bool injectProjectNamespaces,
+            out string actualClassName)
+        {
+            actualClassName = className;
+            var projectUsings = injectProjectNamespaces ? GetReachableProjectNamespaceUsings() : string.Empty;
+
+            if (code.Contains("class "))
+            {
+                var match = Regex.Match(code, @"class\s+(\w+)");
+                if (match.Success)
+                    actualClassName = match.Groups[1].Value;
+
+                return PrependMissingUsings(code, projectUsings);
+            }
+
+            return WrapCode(code, className, projectUsings);
+        }
+
         private static string WrapCode(string code, string className, string projectUsings)
         {
             return $@"using System;
@@ -516,32 +533,27 @@ public static class {className}
 }}";
         }
 
-        private static string GetProjectNamespaceUsings()
+        internal static string GetReachableProjectNamespaceUsings()
         {
-            var namespaces = new HashSet<string>();
             var projectRoot = Path.GetDirectoryName(Application.dataPath);
-            var assetsPath = Path.Combine(projectRoot ?? string.Empty, "Assets");
+            return GetReachableProjectNamespaceUsings(AppDomain.CurrentDomain.GetAssemblies(), projectRoot);
+        }
 
-            if (!Directory.Exists(assetsPath))
+        internal static string GetReachableProjectNamespaceUsings(IEnumerable<Assembly> assemblies, string projectRoot)
+        {
+            if (assemblies == null || string.IsNullOrEmpty(projectRoot))
                 return string.Empty;
 
-            foreach (var file in Directory.GetFiles(assetsPath, "*.cs", SearchOption.AllDirectories))
+            var namespaces = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var assembly in assemblies)
             {
-                try
-                {
-                    if (file.Contains("~" + Path.DirectorySeparatorChar) ||
-                        file.Contains("~" + Path.AltDirectorySeparatorChar))
-                    {
-                        continue;
-                    }
+                if (!IsProjectAssembly(assembly, projectRoot))
+                    continue;
 
-                    var content = File.ReadAllText(file);
-                    var matches = Regex.Matches(content, @"^\s*namespace\s+([\w.]+)", RegexOptions.Multiline);
-                    foreach (Match match in matches)
-                        namespaces.Add(match.Groups[1].Value);
-                }
-                catch
+                foreach (var type in GetLoadableTypes(assembly))
                 {
+                    if (!string.IsNullOrEmpty(type.Namespace) && IsValidNamespace(type.Namespace))
+                        namespaces.Add(type.Namespace);
                 }
             }
 
@@ -549,9 +561,57 @@ public static class {className}
                 return string.Empty;
 
             var sb = new StringBuilder();
-            foreach (var ns in namespaces)
+            foreach (var ns in namespaces.OrderBy(value => value, StringComparer.Ordinal))
                 sb.AppendLine($"using {ns};");
             return sb.ToString();
+        }
+
+        private static bool IsProjectAssembly(Assembly assembly, string projectRoot)
+        {
+            if (assembly == null || assembly.IsDynamic)
+                return false;
+
+            try
+            {
+                var location = assembly.Location;
+                if (string.IsNullOrEmpty(location) || !File.Exists(location))
+                    return false;
+
+                var normalizedLocation = NormalizePath(location);
+                var normalizedProjectRoot = NormalizePath(projectRoot);
+                return normalizedLocation.StartsWith(normalizedProjectRoot + "/", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
+        {
+            try
+            {
+                return assembly.GetTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                return ex.Types.Where(type => type != null);
+            }
+            catch
+            {
+                return Array.Empty<Type>();
+            }
+        }
+
+        private static bool IsValidNamespace(string ns)
+        {
+            return Regex.IsMatch(ns, @"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$");
+        }
+
+        private static string NormalizePath(string path)
+        {
+            return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .Replace('\\', '/');
         }
 
         private static string PrependMissingUsings(string code, string projectUsings)

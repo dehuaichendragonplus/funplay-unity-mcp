@@ -18,6 +18,7 @@ namespace Funplay.Editor.Settings
         private const string DefaultSelectedConfigTarget = "Claude Code";
         private const bool DefaultExecuteCodeSafetyChecksEnabled = true;
         private const bool DefaultExecuteCodeStrictFilesystemSafetyEnabled = true;
+        private const bool DefaultExecuteCodeProjectNamespaceInjectionEnabled = false;
         private const bool DefaultPluginDebugLoggingEnabled = false;
 
         private readonly string _settingsPath;
@@ -178,6 +179,23 @@ namespace Funplay.Editor.Settings
             }
         }
 
+        public bool ExecuteCodeProjectNamespaceInjectionEnabled
+        {
+            get
+            {
+                lock (_lock)
+                    return _settings.executeCodeProjectNamespaceInjectionEnabled;
+            }
+            set
+            {
+                UpdateSettings(data =>
+                {
+                    data.executeCodeProjectNamespaceInjectionEnabled = value;
+                    data.executeCodeProjectNamespaceInjectionConfigured = true;
+                });
+            }
+        }
+
         public bool PluginDebugLoggingEnabled
         {
             get
@@ -278,6 +296,8 @@ namespace Funplay.Editor.Settings
                 executeCodeSafetyChecksConfigured = true,
                 executeCodeStrictFilesystemSafetyEnabled = DefaultExecuteCodeStrictFilesystemSafetyEnabled,
                 executeCodeStrictFilesystemSafetyConfigured = true,
+                executeCodeProjectNamespaceInjectionEnabled = DefaultExecuteCodeProjectNamespaceInjectionEnabled,
+                executeCodeProjectNamespaceInjectionConfigured = true,
                 pluginDebugLoggingEnabled = DefaultPluginDebugLoggingEnabled,
                 pluginDebugLoggingConfigured = true
             };
@@ -302,6 +322,11 @@ namespace Funplay.Editor.Settings
             {
                 settings.executeCodeStrictFilesystemSafetyEnabled = DefaultExecuteCodeStrictFilesystemSafetyEnabled;
                 settings.executeCodeStrictFilesystemSafetyConfigured = true;
+            }
+            if (!settings.executeCodeProjectNamespaceInjectionConfigured)
+            {
+                settings.executeCodeProjectNamespaceInjectionEnabled = DefaultExecuteCodeProjectNamespaceInjectionEnabled;
+                settings.executeCodeProjectNamespaceInjectionConfigured = true;
             }
             if (!settings.pluginDebugLoggingConfigured)
             {
@@ -348,6 +373,8 @@ namespace Funplay.Editor.Settings
             public bool executeCodeSafetyChecksConfigured = false;
             public bool executeCodeStrictFilesystemSafetyEnabled = DefaultExecuteCodeStrictFilesystemSafetyEnabled;
             public bool executeCodeStrictFilesystemSafetyConfigured = false;
+            public bool executeCodeProjectNamespaceInjectionEnabled = DefaultExecuteCodeProjectNamespaceInjectionEnabled;
+            public bool executeCodeProjectNamespaceInjectionConfigured = false;
             public bool pluginDebugLoggingEnabled = DefaultPluginDebugLoggingEnabled;
             public bool pluginDebugLoggingConfigured = false;
         }
