@@ -9,6 +9,9 @@
 ### Fixed
 - Fixed `capture_game_view` returning black frames in URP/HDRP projects by reading the rendered Game View frame before falling back to `camera.Render()`. (#11, #12)
 
+### Contributors
+- Thanks @dehuaichendragonplus for the detailed URP/HDRP Game View capture report and patch.
+
 ## [0.4.2] - 2026-06-06
 
 ### Changed
