@@ -29,6 +29,10 @@ namespace Funplay.Editor.Tools.Builtins
                 height = Mathf.Clamp(height > 0 ? height : 512, 64, 4096);
             }
 
+            var gameViewCapture = TryCapturePlayModeViewRenderTexture(width, height);
+            if (!string.IsNullOrEmpty(gameViewCapture))
+                return gameViewCapture;
+
             var camera = Camera.main;
             if (camera == null)
                 camera = UnityEngine.Object.FindFirstObjectByType<Camera>();
@@ -311,6 +315,69 @@ namespace Funplay.Editor.Tools.Builtins
             }
 
             return false;
+        }
+
+        private static string TryCapturePlayModeViewRenderTexture(int width, int height)
+        {
+            RenderTexture readableRenderTexture = null;
+            RenderTexture previousActive = null;
+            Texture2D screenshot = null;
+
+            try
+            {
+                var playModeViewType = Type.GetType("UnityEditor.PlayModeView,UnityEditor");
+                var getMainPlayModeView = playModeViewType?.GetMethod(
+                    "GetMainPlayModeView",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                var playModeView = getMainPlayModeView?.Invoke(null, null);
+                if (playModeView == null)
+                    return null;
+
+                var renderTextureField = playModeView.GetType().GetField(
+                    "m_RenderTexture",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var sourceRenderTexture = renderTextureField?.GetValue(playModeView) as RenderTexture;
+                if (sourceRenderTexture == null || !sourceRenderTexture.IsCreated() ||
+                    sourceRenderTexture.width <= 0 || sourceRenderTexture.height <= 0)
+                {
+                    return null;
+                }
+
+                readableRenderTexture = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32);
+                readableRenderTexture.Create();
+
+                // Read the already-rendered Game View frame. This avoids camera.Render(),
+                // which can bypass SRP cameras and produce black frames in URP/HDRP.
+                Graphics.Blit(sourceRenderTexture, readableRenderTexture);
+
+                previousActive = RenderTexture.active;
+                RenderTexture.active = readableRenderTexture;
+
+                screenshot = new Texture2D(width, height, TextureFormat.RGB24, false);
+                screenshot.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                screenshot.Apply();
+
+                var pngBytes = screenshot.EncodeToPNG();
+                var base64 = Convert.ToBase64String(pngBytes);
+
+                return ImagePrefix + base64;
+            }
+            catch
+            {
+                return null;
+            }
+            finally
+            {
+                RenderTexture.active = previousActive;
+
+                if (readableRenderTexture != null)
+                {
+                    readableRenderTexture.Release();
+                    UnityEngine.Object.DestroyImmediate(readableRenderTexture);
+                }
+                if (screenshot != null)
+                    UnityEngine.Object.DestroyImmediate(screenshot);
+            }
         }
 
         /// <summary>

@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## [0.4.3] - 2026-06-06
+
+### Changed
+- Documented OpenUPM as an optional UPM registry install source for users who want Unity Package Manager to show registry-backed version history.
+- Added optional release-script verification for OpenUPM indexing after new tags are published.
+
+### Fixed
+- Fixed `capture_game_view` returning black frames in URP/HDRP projects by reading the rendered Game View frame before falling back to `camera.Render()`. (#11, #12)
 
 ## [0.4.2] - 2026-06-06
 

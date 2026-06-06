@@ -31,6 +31,7 @@ Publishing is opt-in:
   --publish-github     Create or update the GitHub Release asset
   --publish-nuget      Push the wrapper nupkg to NuGet; requires NUGET_API_KEY
   --publish-registry   Publish server.json with mcp-publisher after NuGet indexing
+  --verify-openupm     Wait for OpenUPM to index the Unity package version
 
 Options:
   --no-tests           Skip Unity EditMode tests
@@ -72,6 +73,7 @@ USE_WRAPPER=1
 PUBLISH_GITHUB=0
 PUBLISH_NUGET=0
 PUBLISH_REGISTRY=0
+VERIFY_OPENUPM=0
 DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
@@ -82,6 +84,7 @@ while [[ $# -gt 0 ]]; do
     --publish-github) PUBLISH_GITHUB=1 ;;
     --publish-nuget) PUBLISH_NUGET=1 ;;
     --publish-registry) PUBLISH_REGISTRY=1 ;;
+    --verify-openupm) VERIFY_OPENUPM=1 ;;
     --dry-run) DRY_RUN=1 ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown option: $1" ;;
@@ -184,6 +187,22 @@ if (updated === text && !text.includes(`"version": "${version}"`)) {
   throw new Error("Unable to update version in " + path);
 }
 fs.writeFileSync(path, updated);
+NODE
+
+  info "Updating OpenUPM documentation snippets"
+  run node - "$ROOT/README.md" "$ROOT/README_CN.md" "$VERSION" <<'NODE'
+const fs = require("fs");
+const files = process.argv.slice(2, -1);
+const version = process.argv[process.argv.length - 1];
+for (const file of files) {
+  if (!fs.existsSync(file)) continue;
+  const text = fs.readFileSync(file, "utf8");
+  const updated = text.replace(
+    /("com\.gamebooom\.unity\.mcp"\s*:\s*")[^"]+(")/g,
+    `$1${version}$2`
+  );
+  fs.writeFileSync(file, updated);
+}
 NODE
 
   if [[ "$USE_WRAPPER" == 1 && -n "$WRAPPER_ROOT" && -d "$WRAPPER_ROOT" ]]; then
@@ -481,6 +500,21 @@ publish_registry() {
   run "$publisher" publish "$OUT_DIR/server.json"
 }
 
+wait_for_openupm_index() {
+  [[ "$VERIFY_OPENUPM" == 1 ]] || return 0
+  require_command npm
+
+  info "Waiting for OpenUPM package index"
+  for _ in {1..30}; do
+    if npm view com.gamebooom.unity.mcp --registry https://package.openupm.com versions --json \
+        | rg -q "\"$VERSION\""; then
+      return
+    fi
+    sleep 20
+  done
+  fail "OpenUPM index did not show $VERSION in time"
+}
+
 archive_artifacts() {
   info "Release artifacts"
   find "$OUT_DIR" -maxdepth 1 -type f -print | sort
@@ -507,6 +541,7 @@ main() {
   publish_nuget
   wait_for_nuget_index
   publish_registry
+  wait_for_openupm_index
   archive_artifacts
 }
 

@@ -52,6 +52,37 @@ https://github.com/FunplayAI/funplay-unity-mcp.git
 
 > 💡 在 clone 或安装之前，如果你愿意顺手点一个 ⭐，会非常感谢。
 
+### 可选方案：通过 OpenUPM 安装
+
+如果你希望 Unity Package Manager 显示 registry 提供的完整“版本历史记录”并能选择历史版本，可以改用 OpenUPM 安装。
+
+使用 OpenUPM CLI：
+
+```bash
+openupm add com.gamebooom.unity.mcp
+```
+
+或者手动在 `Packages/manifest.json` 中添加 scoped registry：
+
+```json
+{
+  "scopedRegistries": [
+    {
+      "name": "OpenUPM",
+      "url": "https://package.openupm.com",
+      "scopes": [
+        "com.gamebooom"
+      ]
+    }
+  ],
+  "dependencies": {
+    "com.gamebooom.unity.mcp": "0.4.3"
+  }
+}
+```
+
+如果之前是用 Git URL 安装的，先移除 Git dependency，再从 OpenUPM 安装。Git 来源的包在 Unity 中只会显示当前解析到的 Git 版本，不会显示 registry 提供的完整 Version History。
+
 ### 2. 启动 MCP Server
 
 **菜单：Funplay → MCP Server** 启动服务。
