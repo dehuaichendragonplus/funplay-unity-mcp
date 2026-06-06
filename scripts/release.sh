@@ -315,9 +315,16 @@ public static class ExportFunplayUnityPackage
             return false;
 
         var fileName = Path.GetFileName(normalized);
+        if (string.Equals(fileName, ".DS_Store", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fileName, ".DS_Store.meta", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         if (string.Equals(fileName, "CLAUDE.md", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(fileName, "CLAUDE.md.meta", StringComparison.OrdinalIgnoreCase) ||
             fileName.StartsWith(".mcpregistry_", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (ContainsPathSegment(normalized, ".idea"))
             return false;
 
         if (ContainsPathSegment(normalized, "Tests"))
@@ -363,7 +370,7 @@ validate_unitypackage() {
   [[ -z "$bad_paths" ]] || fail "unitypackage contains paths outside Assets/unity-mcp:\n$bad_paths"
 
   local blocked_paths
-  blocked_paths="$(rg '(^|/)(ProjectSettings|Packages|Library|Tests)(/|$)|(^|/)CLAUDE\.md(\.meta)?$|(^|/)\.mcpregistry_' "$OUT_DIR/unitypackage-pathnames.txt" || true)"
+  blocked_paths="$(rg '(^|/)(ProjectSettings|Packages|Library|Tests|\.idea)(/|$)|(^|/)(CLAUDE\.md|\.DS_Store)(\.meta)?$|(^|/)\.mcpregistry_' "$OUT_DIR/unitypackage-pathnames.txt" || true)"
   [[ -z "$blocked_paths" ]] || fail "unitypackage contains blocked paths:\n$blocked_paths"
 }
 

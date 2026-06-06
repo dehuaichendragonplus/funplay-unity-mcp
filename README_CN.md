@@ -239,9 +239,9 @@ url = "http://127.0.0.1:8765/"
 
 ## `execute_code`：内存 C# 执行
 
-`execute_code` 是 Funplay MCP for Unity 的核心工具。AI 写一段 C#，**在内存中编译**，在编辑器线程直接执行——agent 拿到 Unity Editor 与 Runtime 的全套 API，但完全不需要往磁盘写文件。
+`execute_code` 是 Funplay MCP for Unity 的核心工具。AI 写一段 C#，通过 Roslyn 优先的内存编译流程完成编译，并在编辑器线程直接执行——agent 拿到 Unity Editor 与 Runtime 的全套 API，但完全不需要往项目里写文件。
 
-- **零落盘编译** —— 通过 CodeDom 编译成内存程序集、反射执行。`Assets/` 下不会多出 `.cs` 文件，不会触发 domain reload，除非 snippet 自己显式改，否则项目状态不动。
+- **零项目落盘编译** —— 优先使用 Unity 自带 Roslyn csc 编译，同时保留内存编译/内存执行流程。`Assets/` 下不会多出 `.cs` 文件，不会触发 domain reload，除非 snippet 自己显式改，否则项目状态不动。
 - **运行前自动就绪** —— 每次调用都会先刷新 AssetDatabase 并等待 pending compilation 完成，外部文件编辑会被自动拾取，不需要额外 `request_recompile`。
 - **自动 Undo + 结构化日志（推荐模板）** —— 实现 `IFunplayCommand`，用注入的 `ExecutionContext`：所有新建/修改/销毁的对象都自动进 editor Undo，改动列表也会回传给 agent。
 
@@ -296,7 +296,7 @@ Coplay 信息来源：[CoplayDev/unity-mcp](https://github.com/CoplayDev/unity-m
 | 部署 | Editor 内嵌 HTTP MCP server，纯本地 | Editor + 原生 Relay 子进程 + Unity Cloud 后端 |
 | 计费 | 免费，用户自带 AI 客户端 | Credits 点数制（Unity Dashboard）|
 | 工具暴露 | 91 工具 / 20 模块，`core` (29) / `full` profile | ~15 个 MCP 工具（多数为 `Manage*` 大粒度族）|
-| 通用逃生口 | `execute_code` — CodeDom 内存编译、`IFunplayCommand` + Undo、无沙箱（客户端层审批）| `RunCommand` — 命名空间黑名单沙箱 |
+| 通用逃生口 | `execute_code` — Roslyn 优先内存编译、`IFunplayCommand` + Undo、无沙箱（客户端层审批）| `RunCommand` — 命名空间黑名单沙箱 |
 | Play Mode 验证 | 完整闭环：进入 / 模拟输入 / 截图 / 读日志 / 退出 | 仅进入/退出，无输入模拟 |
 | 资产生成器 | 不内建（通过 `execute_code` 组合外部 API）| 内建 Image / Mesh / PBR / Sound / Animation 五类生成器 |
 | 主要客户端模型 | BYO 任意 MCP 客户端（Claude Code / Cursor / LM Studio / Codex / VS Code）| 自带对话窗口 + ACP 经 Gateway 接 Claude/Gemini |

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.4.2] - 2026-06-06
+
+### Changed
+- `execute_code` now compiles snippets through Unity's bundled Roslyn csc first while preserving the in-memory compilation/execution flow. This improves support for modern C# syntax such as target-typed `new()` and switch expressions without writing snippet files into the Unity project.
+- Release packaging now explicitly rejects local IDE metadata and macOS `.DS_Store` files in addition to tests, local notes, token files, and host-project folders.
+
 ## [0.4.1] - 2026-06-03
 
 ### Changed

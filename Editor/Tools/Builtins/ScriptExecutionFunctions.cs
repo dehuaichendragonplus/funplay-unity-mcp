@@ -1,7 +1,6 @@
 // Copyright (C) Funplay. Licensed under MIT.
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
@@ -23,15 +22,11 @@ namespace Funplay.Editor.Tools.Builtins
     [ToolProvider("Script")]
     internal static class ScriptExecutionFunctions
     {
-        private static Type _providerType;
-        private static Type _paramsType;
-        private static bool _typesResolved;
-        private static string _typeLoadError;
-
         private const string HistorySessionKey = "Funplay.MCP.ExecuteCode.History";
         private const int HistoryMaxEntries = 50;
 
-        [Description("Primary high-flexibility execution tool. Compiles a C# snippet in memory and runs it on the editor thread. " +
+        [Description("Primary high-flexibility execution tool. Compiles a C# snippet with Unity's Roslyn csc first " +
+                     "while preserving the in-memory compilation/execution flow, then runs the compiled assembly on the editor thread. " +
                      "Two templates are supported:\n" +
                      "  1) Recommended: implement IFunplayCommand on a class — receives an ExecutionContext (ctx) " +
                      "with RegisterObjectCreation/RegisterObjectModification/DestroyObject (auto-Undo + tracked) and " +
@@ -266,185 +261,90 @@ namespace Funplay.Editor.Tools.Builtins
             return s.Substring(0, max) + "…";
         }
 
-        private static bool EnsureCodeDomTypes()
-        {
-            if (_typesResolved)
-                return _providerType != null;
-
-            _typesResolved = true;
-
-            try
-            {
-                _providerType = Type.GetType("Microsoft.CSharp.CSharpCodeProvider, System");
-                _paramsType = Type.GetType("System.CodeDom.Compiler.CompilerParameters, System");
-
-                if (_providerType == null || _paramsType == null)
-                {
-                    try
-                    {
-                        var codeDomAssembly = Assembly.Load("System.CodeDom");
-                        _providerType = _providerType ?? codeDomAssembly.GetType("Microsoft.CSharp.CSharpCodeProvider");
-                        _paramsType = _paramsType ?? codeDomAssembly.GetType("System.CodeDom.Compiler.CompilerParameters");
-                    }
-                    catch
-                    {
-                    }
-                }
-
-                if (_providerType == null || _paramsType == null)
-                {
-                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-                    {
-                        if (assembly.IsDynamic)
-                            continue;
-
-                        try
-                        {
-                            _providerType = _providerType ?? assembly.GetType("Microsoft.CSharp.CSharpCodeProvider");
-                            _paramsType = _paramsType ?? assembly.GetType("System.CodeDom.Compiler.CompilerParameters");
-                            if (_providerType != null && _paramsType != null)
-                                break;
-                        }
-                        catch
-                        {
-                        }
-                    }
-                }
-
-                if (_providerType == null || _paramsType == null)
-                {
-                    _typeLoadError = "CSharpCodeProvider or CompilerParameters types not found in any loaded assembly";
-                    return false;
-                }
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _typeLoadError = ex.Message;
-                return false;
-            }
-        }
-
         private static object CompileAndExecute(string code, string className)
         {
-            if (!EnsureCodeDomTypes())
-                return Response.Error("CODEDOM_UNAVAILABLE", new { message = _typeLoadError });
+            var compilation = ScriptCompilerPipeline.Compile(code);
+            if (compilation.Status == ScriptCompilationStatus.CompilationFailed)
+            {
+                return Response.Error("COMPILATION_FAILED", new
+                {
+                    compiler = compilation.CompilerName,
+                    errors = compilation.Errors,
+                    compiler_attempts = compilation.Attempts,
+                    hint = "Roslyn is tried first for modern C# syntax while preserving execute_code's in-memory compilation/execution flow."
+                });
+            }
 
-            var provider = Activator.CreateInstance(_providerType);
+            if (compilation.Status != ScriptCompilationStatus.Success || compilation.Assembly == null)
+            {
+                return Response.Error("COMPILATION_BACKEND_UNAVAILABLE", new
+                {
+                    compiler = compilation.CompilerName,
+                    message = compilation.Message,
+                    compiler_attempts = compilation.Attempts
+                });
+            }
+
+            return ExecuteCompiledAssembly(compilation.Assembly, className, compilation.CompilerName, compilation.Attempts);
+        }
+
+        private static object ExecuteCompiledAssembly(
+            Assembly compiledAssembly,
+            string className,
+            string compilerName,
+            List<ScriptCompilerAttempt> compilerAttempts)
+        {
+            // Prefer IFunplayCommand path: any class in the compiled assembly that implements it
+            Type commandType = null;
             try
             {
-                var parameters = Activator.CreateInstance(_paramsType);
-                _paramsType.GetProperty("GenerateInMemory")?.SetValue(parameters, true, null);
-                _paramsType.GetProperty("GenerateExecutable")?.SetValue(parameters, false, null);
-                _paramsType.GetProperty("TreatWarningsAsErrors")?.SetValue(parameters, false, null);
-
-                var referencedAssembliesProperty = _paramsType.GetProperty("ReferencedAssemblies");
-                var referencedAssemblies = referencedAssembliesProperty?.GetValue(parameters, null);
-                var addMethod = referencedAssemblies?.GetType().GetMethod("Add", new[] { typeof(string) });
-
-                var referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    if (assembly.IsDynamic)
-                        continue;
-
-                    try
-                    {
-                        var location = assembly.Location;
-                        if (!string.IsNullOrEmpty(location) && File.Exists(location) && referenced.Add(location))
-                            addMethod?.Invoke(referencedAssemblies, new object[] { location });
-                    }
-                    catch
-                    {
-                    }
-                }
-
-                var compileMethod = _providerType.GetMethod("CompileAssemblyFromSource", new[] { _paramsType, typeof(string[]) });
-                var results = compileMethod?.Invoke(provider, new object[] { parameters, new[] { code } });
-                if (results == null)
-                    return Response.Error("COMPILATION_NULL_RESULT");
-
-                var resultsType = results.GetType();
-                var errors = resultsType.GetProperty("Errors")?.GetValue(results, null);
-                var hasErrors = (bool)(errors?.GetType().GetProperty("HasErrors")?.GetValue(errors, null) ?? false);
-
-                if (hasErrors)
-                {
-                    var errorList = new List<object>();
-                    foreach (var error in (IEnumerable)errors)
-                    {
-                        var errorType = error.GetType();
-                        var isWarning = (bool)(errorType.GetProperty("IsWarning")?.GetValue(error, null) ?? false);
-                        if (isWarning)
-                            continue;
-                        errorList.Add(new
-                        {
-                            line = (int)(errorType.GetProperty("Line")?.GetValue(error, null) ?? 0),
-                            column = (int)(errorType.GetProperty("Column")?.GetValue(error, null) ?? 0),
-                            text = errorType.GetProperty("ErrorText")?.GetValue(error, null)?.ToString() ?? "Unknown error"
-                        });
-                    }
-                    return Response.Error("COMPILATION_FAILED", new { errors = errorList });
-                }
-
-                var compiledAssembly = resultsType.GetProperty("CompiledAssembly")?.GetValue(results, null) as Assembly;
-                if (compiledAssembly == null)
-                    return Response.Error("COMPILED_ASSEMBLY_MISSING");
-
-                // Prefer IFunplayCommand path: any class in the compiled assembly that implements it
-                Type commandType = null;
-                try
-                {
-                    commandType = compiledAssembly.GetTypes()
-                        .FirstOrDefault(t => typeof(IFunplayCommand).IsAssignableFrom(t)
-                                             && !t.IsInterface && !t.IsAbstract);
-                }
-                catch (ReflectionTypeLoadException)
-                {
-                    // Fall through to legacy Run() path
-                }
-                if (commandType != null)
-                    return ExecuteAsCommand(commandType);
-
-                // Legacy path: class with `static Run()`
-                var type = compiledAssembly.GetType(className);
-                if (type == null)
-                    return Response.Error("CLASS_NOT_FOUND",
-                        new { className, available = GetTypeNames(compiledAssembly) });
-
-                var method = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Static);
-                if (method == null)
-                    return Response.Error("RUN_METHOD_NOT_FOUND", new { className });
-
-                try
-                {
-                    var result = method.Invoke(null, null);
-                    return Response.Success("Executed (legacy Run()).", new { result = result?.ToString() ?? "OK" });
-                }
-                catch (TargetInvocationException ex)
-                {
-                    var inner = ex.InnerException ?? ex;
-                    Debug.LogError($"[Funplay] Script runtime error: {inner.Message}\n{inner.StackTrace}");
-                    return Response.Error("RUNTIME_ERROR",
-                        new { message = inner.Message, stack = inner.StackTrace });
-                }
+                commandType = compiledAssembly.GetTypes()
+                    .FirstOrDefault(t => typeof(IFunplayCommand).IsAssignableFrom(t)
+                                         && !t.IsInterface && !t.IsAbstract);
             }
-            finally
+            catch (ReflectionTypeLoadException)
             {
-                if (provider is IDisposable disposable)
-                    disposable.Dispose();
+                // Fall through to legacy Run() path
+            }
+            if (commandType != null)
+                return ExecuteAsCommand(commandType, compilerName);
+
+            // Legacy path: class with `static Run()`
+            var type = compiledAssembly.GetType(className);
+            if (type == null)
+                return Response.Error("CLASS_NOT_FOUND",
+                    new { className, available = GetTypeNames(compiledAssembly), compiler = compilerName, compiler_attempts = compilerAttempts });
+
+            var method = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Static);
+            if (method == null)
+                return Response.Error("RUN_METHOD_NOT_FOUND", new { className, compiler = compilerName });
+
+            try
+            {
+                var result = method.Invoke(null, null);
+                return Response.Success("Executed (legacy Run()).", new
+                {
+                    result = result?.ToString() ?? "OK",
+                    compiler = compilerName
+                });
+            }
+            catch (TargetInvocationException ex)
+            {
+                var inner = ex.InnerException ?? ex;
+                Debug.LogError($"[Funplay] Script runtime error: {inner.Message}\n{inner.StackTrace}");
+                return Response.Error("RUNTIME_ERROR",
+                    new { message = inner.Message, stack = inner.StackTrace, compiler = compilerName });
             }
         }
 
-        private static object ExecuteAsCommand(Type commandType)
+        private static object ExecuteAsCommand(Type commandType, string compilerName)
         {
             IFunplayCommand instance;
             try { instance = (IFunplayCommand)Activator.CreateInstance(commandType); }
             catch (Exception ex)
             {
                 return Response.Error("COMMAND_INSTANTIATION_FAILED",
-                    new { type = commandType.FullName, error = ex.Message });
+                    new { type = commandType.FullName, error = ex.Message, compiler = compilerName });
             }
 
             var ctx = new ExecutionContext();
@@ -459,6 +359,7 @@ namespace Funplay.Editor.Tools.Builtins
                 {
                     message = ex.Message,
                     stack = ex.StackTrace,
+                    compiler = compilerName,
                     logs = ctx.Logs,
                     created = ctx.CreatedInstanceIds,
                     modified = ctx.ModifiedInstanceIds,
@@ -468,6 +369,7 @@ namespace Funplay.Editor.Tools.Builtins
 
             return Response.Success("Command executed.", new
             {
+                compiler = compilerName,
                 logs = ctx.Logs,
                 created = ctx.CreatedInstanceIds,
                 modified = ctx.ModifiedInstanceIds,

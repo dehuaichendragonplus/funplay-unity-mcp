@@ -237,9 +237,9 @@ Open your AI client and try: *"Create a 3D platformer level with 5 floating plat
 
 ## `execute_code`: In-Memory C# Execution
 
-`execute_code` is the heart of Funplay MCP for Unity. It lets an AI write a C# snippet, compile it **in memory**, and run it on the editor thread — the agent gets the full Unity Editor and runtime API surface without writing any files to disk.
+`execute_code` is the heart of Funplay MCP for Unity. It lets an AI write a C# snippet, compile it through a Roslyn-first in-memory flow, and run it on the editor thread — the agent gets the full Unity Editor and runtime API surface without writing any project files to disk.
 
-- **Zero-footprint compilation** — Snippets are compiled via CodeDom into an in-memory assembly and executed by reflection. No `.cs` files are written under `Assets/`, no domain reload is triggered, no project state is touched beyond what the snippet itself does.
+- **Zero project footprint compilation** — Snippets are compiled with Unity's bundled Roslyn csc first while preserving the in-memory compilation/execution flow. No `.cs` files are written under `Assets/`, no domain reload is triggered, no project state is touched beyond what the snippet itself does.
 - **Editor-ready before it runs** — Each call refreshes the AssetDatabase and waits for any pending compilation to settle before compiling the snippet, so external file edits are picked up automatically without a separate `request_recompile`.
 - **Auto-Undo + structured logs (recommended template)** — Implement `IFunplayCommand` and use the injected `ExecutionContext` so every created / modified / destroyed object participates in editor Undo, and the changelog is returned to the agent.
 
@@ -294,7 +294,7 @@ The table below compares this repository with Unity Technologies' official `com.
 | Deployment | Local HTTP MCP server in Editor, no cloud | Editor + native Relay subprocess + Unity Cloud backend |
 | Billing | Free, user brings their own AI client | Credits-based (Unity Dashboard) |
 | Tool exposure | 91 tools across 20 modules, `core` (29) / `full` profiles | ~15 MCP tools (mostly `Manage*` families) |
-| Generic escape hatch | `execute_code` — CodeDom in-memory compile, `IFunplayCommand` + Undo, no sandbox (client-side approval) | `RunCommand` — namespace blacklist sandbox |
+| Generic escape hatch | `execute_code` — Roslyn-first in-memory compile, `IFunplayCommand` + Undo, no sandbox (client-side approval) | `RunCommand` — namespace blacklist sandbox |
 | Play mode validation | Full loop: enter / simulate input / capture / read logs / exit | Enter/Exit only; no input simulation |
 | Asset generators | Not built-in (compose external APIs via `execute_code`) | Native Image / Mesh / PBR / Sound / Animation generators |
 | Primary client model | BYO any MCP client (Claude Code / Cursor / LM Studio / Codex / VS Code) | Built-in chat window + ACP for Claude/Gemini via Gateway |
