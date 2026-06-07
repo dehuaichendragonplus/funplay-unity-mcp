@@ -1,6 +1,8 @@
 // Copyright (C) Funplay. Licensed under MIT.
 
+using System;
 using System.IO;
+using System.Reflection;
 using Funplay.Editor.Tools.Builtins;
 using Funplay.Editor.Tools.Helpers;
 using NUnit.Framework;
@@ -88,6 +90,17 @@ namespace Funplay.Editor.Tests
             Assert.IsFalse(ScriptExecutionFunctions.IsProjectScriptAssemblyPath(
                 Path.Combine(projectRoot + "Other", "Library", "ScriptAssemblies", "Game.Editor.dll"),
                 projectRoot));
+        }
+
+        [Test]
+        public void ExecuteCodeDiagnostics_UnwrapsTargetInvocationException()
+        {
+            var inner = new InvalidOperationException("real compiler failure");
+            var wrapped = new TargetInvocationException(
+                "Exception has been thrown by the target of an invocation.",
+                new TargetInvocationException(inner));
+
+            Assert.AreSame(inner, ScriptExecutionFunctions.UnwrapTargetInvocationException(wrapped));
         }
 
         private static void AssertBlocked(string code, bool strict, string expectedReasonPart)

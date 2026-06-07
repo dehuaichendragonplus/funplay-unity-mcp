@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Improved `execute_code` unexpected failure diagnostics by unwrapping `TargetInvocationException` and returning the underlying exception type, message, and stack trace. (#14)
+
 ## [0.4.3] - 2026-06-06
 
 ### Changed

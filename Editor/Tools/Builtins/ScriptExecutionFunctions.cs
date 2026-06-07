@@ -91,10 +91,29 @@ namespace Funplay.Editor.Tools.Builtins
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[Funplay] ExecuteCode failed: {ex.Message}");
-                AppendHistory(code, false, ex.Message);
-                return Response.Error("EXECUTE_CODE_FAILED", new { message = ex.Message });
+                var root = UnwrapTargetInvocationException(ex);
+                Debug.LogError($"[Funplay] ExecuteCode failed: {root.GetType().FullName}: {root.Message}\n{root.StackTrace}");
+                AppendHistory(code, false, $"{root.GetType().Name}: {root.Message}");
+                return Response.Error("EXECUTE_CODE_FAILED", new
+                {
+                    message = root.Message,
+                    exception_type = root.GetType().FullName,
+                    stack = root.StackTrace,
+                    outer_exception_type = ReferenceEquals(root, ex) ? null : ex.GetType().FullName,
+                    outer_message = ReferenceEquals(root, ex) ? null : ex.Message
+                });
             }
+        }
+
+        internal static Exception UnwrapTargetInvocationException(Exception exception)
+        {
+            while (exception is TargetInvocationException invocationException &&
+                   invocationException.InnerException != null)
+            {
+                exception = invocationException.InnerException;
+            }
+
+            return exception;
         }
 
         [Description("Return the most recent execute_code invocations (success or failure) from the current Editor session. " +
