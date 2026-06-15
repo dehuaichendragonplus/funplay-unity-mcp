@@ -20,6 +20,7 @@ namespace Funplay.Editor.Settings
         private const bool DefaultExecuteCodeStrictFilesystemSafetyEnabled = true;
         private const bool DefaultExecuteCodeProjectNamespaceInjectionEnabled = false;
         private const bool DefaultPluginDebugLoggingEnabled = false;
+        private const bool DefaultMCPBrokerModeEnabled = false;
 
         private readonly string _settingsPath;
         private readonly object _lock = new object();
@@ -213,6 +214,33 @@ namespace Funplay.Editor.Settings
             }
         }
 
+        public bool MCPBrokerModeEnabled
+        {
+            get
+            {
+                lock (_lock)
+                    return _settings.mcpBrokerModeEnabled;
+            }
+            set
+            {
+                UpdateSettings(data => data.mcpBrokerModeEnabled = value);
+            }
+        }
+
+        public string MCPBrokerMonoPath
+        {
+            get
+            {
+                lock (_lock)
+                    return _settings.mcpBrokerMonoPath ?? string.Empty;
+            }
+            set
+            {
+                var normalized = string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+                UpdateSettings(data => data.mcpBrokerMonoPath = normalized);
+            }
+        }
+
         private void UpdateSettings(Action<SettingsData> apply)
         {
             if (apply == null) return;
@@ -299,7 +327,9 @@ namespace Funplay.Editor.Settings
                 executeCodeProjectNamespaceInjectionEnabled = DefaultExecuteCodeProjectNamespaceInjectionEnabled,
                 executeCodeProjectNamespaceInjectionConfigured = true,
                 pluginDebugLoggingEnabled = DefaultPluginDebugLoggingEnabled,
-                pluginDebugLoggingConfigured = true
+                pluginDebugLoggingConfigured = true,
+                mcpBrokerModeEnabled = DefaultMCPBrokerModeEnabled,
+                mcpBrokerMonoPath = string.Empty
             };
         }
 
@@ -309,6 +339,7 @@ namespace Funplay.Editor.Settings
                 return;
 
             settings.port = settings.port > 0 ? settings.port : DefaultPort;
+            settings.mcpBrokerMonoPath = settings.mcpBrokerMonoPath ?? string.Empty;
             settings.toolExportProfile = NormalizeToolExportProfile(settings.toolExportProfile);
             settings.coreTools = settings.coreToolsCustom ? NormalizeToolNames(settings.coreTools) : null;
             settings.fullTools = settings.fullToolsCustom ? NormalizeToolNames(settings.fullTools) : null;
@@ -377,6 +408,8 @@ namespace Funplay.Editor.Settings
             public bool executeCodeProjectNamespaceInjectionConfigured = false;
             public bool pluginDebugLoggingEnabled = DefaultPluginDebugLoggingEnabled;
             public bool pluginDebugLoggingConfigured = false;
+            public bool mcpBrokerModeEnabled = DefaultMCPBrokerModeEnabled;
+            public string mcpBrokerMonoPath = string.Empty;
         }
     }
 }

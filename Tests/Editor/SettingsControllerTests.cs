@@ -23,6 +23,8 @@ namespace Funplay.Editor
                 Assert.IsTrue(controller.ExecuteCodeStrictFilesystemSafetyEnabled);
                 Assert.IsFalse(controller.ExecuteCodeProjectNamespaceInjectionEnabled);
                 Assert.IsFalse(controller.PluginDebugLoggingEnabled);
+                Assert.IsFalse(controller.MCPBrokerModeEnabled);
+                Assert.AreEqual(string.Empty, controller.MCPBrokerMonoPath);
                 StringAssert.Contains("\"executeCodeSafetyChecksEnabled\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeSafetyChecksConfigured\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeStrictFilesystemSafetyEnabled\": true", ReadSettingsJson(projectPath));
@@ -31,6 +33,8 @@ namespace Funplay.Editor
                 StringAssert.Contains("\"executeCodeProjectNamespaceInjectionConfigured\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"pluginDebugLoggingEnabled\": false", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"pluginDebugLoggingConfigured\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"mcpBrokerModeEnabled\": false", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"mcpBrokerMonoPath\": \"\"", ReadSettingsJson(projectPath));
             }
             finally
             {
@@ -57,6 +61,8 @@ namespace Funplay.Editor
                 Assert.IsTrue(controller.ExecuteCodeStrictFilesystemSafetyEnabled);
                 Assert.IsFalse(controller.ExecuteCodeProjectNamespaceInjectionEnabled);
                 Assert.IsFalse(controller.PluginDebugLoggingEnabled);
+                Assert.IsFalse(controller.MCPBrokerModeEnabled);
+                Assert.AreEqual(string.Empty, controller.MCPBrokerMonoPath);
                 StringAssert.Contains("\"executeCodeSafetyChecksEnabled\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeSafetyChecksConfigured\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"executeCodeStrictFilesystemSafetyEnabled\": true", ReadSettingsJson(projectPath));
@@ -65,6 +71,8 @@ namespace Funplay.Editor
                 StringAssert.Contains("\"executeCodeProjectNamespaceInjectionConfigured\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"pluginDebugLoggingEnabled\": false", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"pluginDebugLoggingConfigured\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"mcpBrokerModeEnabled\": false", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"mcpBrokerMonoPath\": \"\"", ReadSettingsJson(projectPath));
             }
             finally
             {
@@ -153,6 +161,30 @@ namespace Funplay.Editor
                 Assert.IsTrue(reloaded.PluginDebugLoggingEnabled);
                 StringAssert.Contains("\"pluginDebugLoggingEnabled\": true", ReadSettingsJson(projectPath));
                 StringAssert.Contains("\"pluginDebugLoggingConfigured\": true", ReadSettingsJson(projectPath));
+            }
+            finally
+            {
+                DeleteTempProjectPath(projectPath);
+            }
+        }
+
+        [Test]
+        public void BrokerSettings_PersistValues()
+        {
+            var projectPath = CreateTempProjectPath();
+
+            try
+            {
+                var controller = new SettingsController(new TestApplicationPaths(projectPath));
+                controller.MCPBrokerModeEnabled = true;
+                controller.MCPBrokerMonoPath = "  /tmp/unity-mono  ";
+
+                var reloaded = new SettingsController(new TestApplicationPaths(projectPath));
+
+                Assert.IsTrue(reloaded.MCPBrokerModeEnabled);
+                Assert.AreEqual("/tmp/unity-mono", reloaded.MCPBrokerMonoPath);
+                StringAssert.Contains("\"mcpBrokerModeEnabled\": true", ReadSettingsJson(projectPath));
+                StringAssert.Contains("\"mcpBrokerMonoPath\": \"/tmp/unity-mono\"", ReadSettingsJson(projectPath));
             }
             finally
             {

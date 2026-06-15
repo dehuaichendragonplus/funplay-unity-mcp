@@ -76,7 +76,7 @@ openupm add com.gamebooom.unity.mcp
     }
   ],
   "dependencies": {
-    "com.gamebooom.unity.mcp": "0.4.3"
+    "com.gamebooom.unity.mcp": "0.4.4"
   }
 }
 ```
@@ -88,6 +88,8 @@ openupm add com.gamebooom.unity.mcp
 **菜单：Funplay → MCP Server** 启动服务。
 
 默认从 `http://127.0.0.1:8765/` 启动。
+
+默认传输仍然是进程内 Direct HTTP。如果你需要在 Unity 脚本重编译或进入 Play Mode 触发域重载时尽量保持 MCP 客户端连接，可以在 MCP Server 窗口启用 **Experimental Broker Mode**。它会用 Unity 自带 Mono 启动一个很小的本地 broker，客户端仍然连接同一个 `127.0.0.1` 端口，不需要改 MCP 配置。
 
 如果你想编辑 `core` 或 `full` 各自暴露哪些工具，可以打开 **Funplay → Tool Exposure**。
 

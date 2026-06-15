@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.4.4] - 2026-06-15
+
+### Added
+- Added an optional experimental Broker Mode for the MCP Server. When enabled, a tiny local broker process owns the HTTP port and keeps client requests alive while Unity reloads the scripting domain; direct in-process HTTP remains the default.
+- Broker Mode now returns a retryable JSON-RPC error for new requests while the Unity backend is reloading or reconnecting, instead of letting short client timeouts expire silently.
+
 ### Fixed
 - Improved `execute_code` unexpected failure diagnostics by unwrapping `TargetInvocationException` and returning the underlying exception type, message, and stack trace. (#14)
 

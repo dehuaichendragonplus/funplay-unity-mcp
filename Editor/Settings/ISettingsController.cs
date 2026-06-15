@@ -18,6 +18,8 @@ namespace Funplay.Editor.Settings
         bool ExecuteCodeStrictFilesystemSafetyEnabled { get; set; }
         bool ExecuteCodeProjectNamespaceInjectionEnabled { get; set; }
         bool PluginDebugLoggingEnabled { get; set; }
+        bool MCPBrokerModeEnabled { get; set; }
+        string MCPBrokerMonoPath { get; set; }
 
         event Action OnSettingsChanged;
     }

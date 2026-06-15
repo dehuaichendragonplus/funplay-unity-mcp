@@ -1,6 +1,7 @@
 // Copyright (C) Funplay. Licensed under MIT.
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Funplay.Editor.MCP;
@@ -43,6 +44,7 @@ namespace Funplay.Editor.MCP.Server
         private bool _restartScheduled;
         private bool _restartInProgress;
         private string _toolExposureSetting;
+        private string _transportSetting;
 
         public bool IsRunning
         {
@@ -60,8 +62,7 @@ namespace Funplay.Editor.MCP.Server
             {
                 lock (_lifecycleLock)
                 {
-                    return _transport is HttpMCPTransport httpTransport &&
-                           httpTransport.IsAttachedToExistingServer;
+                    return _transport?.IsAttachedToExistingServer == true;
                 }
             }
         }
@@ -87,6 +88,7 @@ namespace Funplay.Editor.MCP.Server
 
             Port = _settings.MCPServerPort;
             _toolExposureSetting = BuildToolExposureSetting();
+            _transportSetting = BuildTransportSetting();
             InteractionLog = new MCPInteractionLog();
             _settings.OnSettingsChanged += HandleSettingsChanged;
             DomainReloadHandler.Register(_stateController);
@@ -177,7 +179,7 @@ namespace Funplay.Editor.MCP.Server
 
                 var serverName = "Funplay MCP Server - " + Application.productName;
                 var projectIdentity = FunplayProjectIdentity.FromProjectPath(_applicationPaths.ProjectPath);
-                transport = new HttpMCPTransport(startupPort, serverName, projectIdentity);
+                transport = CreateTransport(startupPort, serverName, projectIdentity);
                 var toolExporter = new MCPToolExporter(_settings);
                 var executionBridge = new MCPExecutionBridge(_threadHelper, _settings, _stateController, _invoker, InteractionLog);
                 resourceProvider = new MCPResourceProvider(_contextBuilder, _applicationPaths, InteractionLog);
@@ -199,6 +201,7 @@ namespace Funplay.Editor.MCP.Server
                     {
                         Port = startupPort;
                         _toolExposureSetting = toolExposureSetting;
+                        _transportSetting = BuildTransportSetting();
                         _transport = transport;
                         _resourceProvider = resourceProvider;
                         _requestHandler = requestHandler;
@@ -230,7 +233,7 @@ namespace Funplay.Editor.MCP.Server
                         return false;
                     }
 
-                    if (transport is HttpMCPTransport httpTransport && httpTransport.IsAttachedToExistingServer)
+                    if (transport.IsAttachedToExistingServer)
                     {
                         PluginDebugLogger.Log($"[Funplay] MCP Server attached to existing listener on http://127.0.0.1:{Port}/");
                     }
@@ -387,7 +390,14 @@ namespace Funplay.Editor.MCP.Server
                 }
 
                 var response = await _threadHelper.ExecuteAsyncOnEditorThreadAsync(
-                    async () => await requestHandler.HandleRequestAsync(request, default));
+                    async () =>
+                    {
+                        var redeliveryResponse = TryCreateBrokerRedeliveryResponse(request);
+                        if (redeliveryResponse != null)
+                            return redeliveryResponse;
+
+                        return await requestHandler.HandleRequestAsync(request, default);
+                    });
                 sendResponse(response);
             }
             catch (Exception ex)
@@ -407,15 +417,41 @@ namespace Funplay.Editor.MCP.Server
 
             var portChanged = _settings.MCPServerPort != Port;
             var toolExposureSetting = BuildToolExposureSetting();
+            var transportSetting = BuildTransportSetting();
             var toolExposureChanged = !string.Equals(toolExposureSetting, _toolExposureSetting, StringComparison.Ordinal);
+            var transportChanged = !string.Equals(transportSetting, _transportSetting, StringComparison.Ordinal);
 
-            if ((portChanged || toolExposureChanged) && _isRunning)
+            if ((portChanged || toolExposureChanged || transportChanged) && _isRunning)
             {
                 PluginDebugLogger.Log("[Funplay MCP Server] Server settings changed, restarting MCP transport...");
                 Port = _settings.MCPServerPort;
                 _toolExposureSetting = toolExposureSetting;
+                _transportSetting = transportSetting;
                 ScheduleRestart();
             }
+        }
+
+        private IMCPTransport CreateTransport(int startupPort, string serverName, string projectIdentity)
+        {
+            if (_settings.MCPBrokerModeEnabled)
+            {
+                if (MCPBrokerProcessManager.EnsureRunning(startupPort, _settings.MCPBrokerMonoPath) &&
+                    MCPBrokerProcessManager.TryGetConnectionInfo(startupPort, out var broker))
+                {
+                    return new MCPBrokerClientTransport(startupPort, broker.Token);
+                }
+
+                Debug.LogWarning(
+                    "[Funplay MCP Server] Broker mode requested but broker could not start (" +
+                    (MCPBrokerProcessManager.LastError ?? "unknown error") +
+                    "); falling back to in-process HTTP transport.");
+            }
+            else
+            {
+                MCPBrokerProcessManager.Stop();
+            }
+
+            return new HttpMCPTransport(startupPort, serverName, projectIdentity);
         }
 
         private string BuildToolExposureSetting()
@@ -426,6 +462,79 @@ namespace Funplay.Editor.MCP.Server
                 string.Join(",", _settings.MCPCoreTools ?? Array.Empty<string>()),
                 _settings.MCPFullToolsConfigured ? "full=custom" : "full=default",
                 string.Join(",", _settings.MCPFullTools ?? Array.Empty<string>()));
+        }
+
+        private string BuildTransportSetting()
+        {
+            return string.Join("|",
+                _settings.MCPBrokerModeEnabled ? "broker=on" : "broker=off",
+                _settings.MCPBrokerMonoPath ?? string.Empty);
+        }
+
+        internal static MCPResponse TryCreateBrokerRedeliveryResponse(MCPRequest request)
+        {
+            if (request == null ||
+                !request.IsBrokerRedelivery ||
+                !string.Equals(request.Method, "tools/call", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            var toolName = GetToolName(request);
+            if (string.Equals(toolName, "get_reload_recovery_status", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var recovery = DomainReloadHandler.GetLastRecoveryInfo(false);
+            string summary;
+            bool isError;
+
+            if (recovery != null &&
+                (string.IsNullOrEmpty(toolName) ||
+                 string.Equals(recovery.ToolName, toolName, StringComparison.OrdinalIgnoreCase)) &&
+                (DateTime.Now - recovery.Timestamp).TotalMinutes <= 10)
+            {
+                summary =
+                    "Broker mode recovered a tool call that was interrupted by Unity domain reload.\n" +
+                    "Tool: " + recovery.ToolName + "\n" +
+                    "Status: " + recovery.Status + "\n" +
+                    recovery.Summary;
+                isError = string.Equals(recovery.Status, MCPToolCallStatus.Error.ToString(), StringComparison.OrdinalIgnoreCase);
+            }
+            else
+            {
+                summary =
+                    "Tool '" + (string.IsNullOrEmpty(toolName) ? "unknown" : toolName) +
+                    "' was interrupted by Unity domain reload. Broker mode kept the HTTP request alive, " +
+                    "but the original Unity AppDomain was unloaded before it could send a response. " +
+                    "The tool was not re-run automatically to avoid duplicate side effects. " +
+                    "Call get_reload_recovery_status, then retry only if more work is needed.";
+                isError = true;
+            }
+
+            return new MCPResponse
+            {
+                Id = request.Id,
+                Result = new Dictionary<string, object>
+                {
+                    ["content"] = new List<Dictionary<string, object>>
+                    {
+                        new Dictionary<string, object>
+                        {
+                            ["type"] = "text",
+                            ["text"] = summary
+                        }
+                    },
+                    ["isError"] = isError
+                }
+            };
+        }
+
+        private static string GetToolName(MCPRequest request)
+        {
+            if (request?.Params == null)
+                return string.Empty;
+
+            return request.Params.TryGetValue("name", out var value) ? value?.ToString() ?? string.Empty : string.Empty;
         }
 
         private int ResolveStartupPort()

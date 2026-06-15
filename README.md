@@ -76,7 +76,7 @@ Or add the scoped registry manually in `Packages/manifest.json`:
     }
   ],
   "dependencies": {
-    "com.gamebooom.unity.mcp": "0.4.3"
+    "com.gamebooom.unity.mcp": "0.4.4"
   }
 }
 ```
@@ -88,6 +88,8 @@ If you installed from a Git URL before, remove the Git dependency first, then in
 **Menu: Funplay → MCP Server** to start the server.
 
 The server starts on `http://127.0.0.1:8765/` by default.
+
+Direct in-process HTTP is the default transport. If you need stronger connection continuity across Unity script recompiles or Play Mode domain reloads, enable **Experimental Broker Mode** in the MCP Server window. It runs a tiny local broker with Unity's bundled Mono, keeps the same `127.0.0.1` port for MCP clients, and requires no client config change.
 
 Open **Funplay → Tool Exposure** if you want to edit the exact tools exposed by `core` or `full`.
 

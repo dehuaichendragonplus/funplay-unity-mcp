@@ -13,6 +13,7 @@ namespace Funplay.Editor.MCP.Server
     internal interface IMCPTransport : IDisposable
     {
         bool IsRunning { get; }
+        bool IsAttachedToExistingServer { get; }
         Task<bool> StartAsync(CancellationToken ct = default);
         Task StopAsync();
 
@@ -32,6 +33,7 @@ namespace Funplay.Editor.MCP.Server
         public object Id { get; set; }
         public string Method { get; set; }
         public Dictionary<string, object> Params { get; set; }
+        public bool IsBrokerRedelivery { get; set; }
     }
 
     internal class MCPResponse
