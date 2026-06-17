@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Funplay.Editor.Tools.Helpers;
 using UnityEditor;
 using UnityEditor.Compilation;
 
@@ -21,6 +22,7 @@ namespace Funplay.Editor.Services
         public static CompilationService Instance { get; private set; }
 
         public bool IsCompiling => EditorApplication.isCompiling;
+        public EditorRefreshResult LastRefreshResult { get; private set; }
         public event Action OnCompilationFinished
         {
             add => CompilationFinished += value;
@@ -43,9 +45,18 @@ namespace Funplay.Editor.Services
         {
             if (forceRefresh)
             {
-                AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
-                if (!await WaitForCompilationToStartAsync(timeoutSeconds).ConfigureAwait(false))
+                LastRefreshResult = await EditorRefreshHelper.RefreshAndRequestCompilationAsync(
+                    forceUpdate: true,
+                    verifyScriptChanges: true);
+
+                if (LastRefreshResult.ScriptChangesStillPending)
+                    return false;
+
+                if (!LastRefreshResult.CompilationOrImportStarted &&
+                    !await WaitForCompilationToStartAsync(timeoutSeconds).ConfigureAwait(false))
+                {
                     return true;
+                }
             }
             else if (!EditorApplication.isCompiling)
             {

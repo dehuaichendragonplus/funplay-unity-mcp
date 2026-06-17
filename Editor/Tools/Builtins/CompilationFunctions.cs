@@ -37,11 +37,23 @@ namespace Funplay.Editor.Tools.Builtins
 
                 var startTime = DateTime.UtcNow;
                 bool completed = await compilationService
-                    .WaitForCompilationAsync(force_refresh, timeout_seconds)
-                    .ConfigureAwait(false);
+                    .WaitForCompilationAsync(force_refresh, timeout_seconds);
 
                 if (!completed)
+                {
+                    if (compilationService.LastRefreshResult?.ScriptChangesStillPending == true)
+                    {
+                        return ToolResultFormatter.Error("REFRESH_DID_NOT_START_COMPILATION",
+                            new
+                            {
+                                timeout_seconds,
+                                refresh = compilationService.LastRefreshResult.ToResponseData(),
+                                hint = "Unity did not begin script compilation after refresh. If a hot-reload or auto-refresh interception plugin is active, trigger a normal Unity script compilation or disable that interception for this operation."
+                            });
+                    }
+
                     return ToolResultFormatter.Error("COMPILATION_TIMEOUT", new { timeout_seconds });
+                }
 
                 var issues = compilationService.GetCompilationErrors();
                 if (!string.Equals(issues, "No compilation errors detected.", StringComparison.Ordinal))
@@ -75,12 +87,26 @@ namespace Funplay.Editor.Tools.Builtins
             MarkExternalSyncPending();
             timeout_seconds = Mathf.Clamp(timeout_seconds, 5, 120);
 
-            AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
+            var refreshResult = await EditorRefreshHelper.RefreshAndRequestCompilationAsync(
+                    forceUpdate: true,
+                    verifyScriptChanges: true);
 
-            if (EditorApplication.isCompiling)
+            if (refreshResult.ScriptChangesStillPending)
+            {
+                ClearExternalSyncPending();
+                return ToolResultFormatter.Error("REFRESH_DID_NOT_START_COMPILATION",
+                    new
+                    {
+                        refresh = refreshResult.ToResponseData(),
+                        hint = "Unity did not begin script compilation after importing external changes. A hot-reload or auto-refresh interception plugin may be swallowing refresh/compile requests."
+                    });
+            }
+
+            if (EditorApplication.isCompiling || refreshResult.CompilationOrImportStarted)
             {
                 ExternalSyncRecoveryTracker.TryCompletePendingRecovery();
-                return "External changes imported. Unity started recompiling scripts and may reload the domain. " +
+                return "External changes imported. Unity started importing or recompiling and may reload the domain. " +
+                       $"Refresh strategy: {refreshResult.BuildStrategySummary()}. " +
                        "If this request is interrupted, call get_reload_recovery_status for the final outcome.";
             }
 
@@ -92,8 +118,7 @@ namespace Funplay.Editor.Tools.Builtins
             }
 
             bool completed = await compilationService
-                .WaitForCompilationAsync(forceRefresh: false, timeoutSeconds: timeout_seconds)
-                .ConfigureAwait(false);
+                .WaitForCompilationAsync(forceRefresh: false, timeoutSeconds: timeout_seconds);
 
             if (!completed)
             {

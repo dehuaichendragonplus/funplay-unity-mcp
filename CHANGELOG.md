@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.4.6] - 2026-06-17
+
+### Fixed
+- Made external script refresh and compilation requests resilient when Unity Auto Refresh is disabled or a hot-reload plugin intercepts the normal refresh path. `request_recompile`, `wait_for_compilation(force_refresh)`, and `execute_code` now share a fallback refresh flow and return `REFRESH_DID_NOT_START_COMPILATION` instead of reporting stale compilation results as success when scripts still look uncompiled. (#15)
+
 ## [0.4.5] - 2026-06-17
 
 ### Added

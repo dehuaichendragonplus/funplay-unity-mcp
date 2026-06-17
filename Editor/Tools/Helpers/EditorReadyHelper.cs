@@ -19,42 +19,12 @@ namespace Funplay.Editor.Tools.Helpers
 
         public static async Task RefreshAndWaitForReady()
         {
-            AssetDatabase.Refresh();
-
-            if (EditorApplication.isCompiling || EditorApplication.isUpdating)
-                await WaitForEditorReadyAsync(DefaultTimeout);
+            await EditorRefreshHelper.RefreshAndWaitForReadyAsync(DefaultTimeout);
         }
 
         public static Task WaitForEditorReadyAsync(TimeSpan timeout)
         {
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var start = DateTime.UtcNow;
-
-            void Tick()
-            {
-                if (tcs.Task.IsCompleted)
-                {
-                    EditorApplication.update -= Tick;
-                    return;
-                }
-
-                if ((DateTime.UtcNow - start) > timeout)
-                {
-                    EditorApplication.update -= Tick;
-                    tcs.TrySetException(new TimeoutException("Editor still busy after timeout"));
-                    return;
-                }
-
-                if (!EditorApplication.isCompiling && !EditorApplication.isUpdating)
-                {
-                    EditorApplication.update -= Tick;
-                    tcs.TrySetResult(true);
-                }
-            }
-
-            EditorApplication.update += Tick;
-            EditorApplication.QueuePlayerLoopUpdate();
-            return tcs.Task;
+            return EditorRefreshHelper.WaitForEditorReadyAsync(timeout);
         }
     }
 }
