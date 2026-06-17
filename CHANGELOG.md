@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.4.5] - 2026-06-17
+
+### Added
+- Added `capture_simulator_view` to capture Unity's Device Simulator screen, optionally select the Simulator device by name, and draw a Safe Area outline overlay while preserving the source aspect ratio when only one output dimension is provided.
+
+### Fixed
+- Fixed Device Simulator captures being vertically flipped.
+- Removed the Game View fallback from Device Simulator captures so device switches no longer return a stale 16:9 Game View image when the Simulator preview texture is not ready.
+
 ## [0.4.4] - 2026-06-15
 
 ### Added
