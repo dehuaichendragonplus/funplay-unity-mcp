@@ -61,6 +61,33 @@ namespace Funplay.Editor.Tests
         }
 
         [Test]
+        public void BuildCodeForCompilation_IFunplayCommandMissingUsing_AddsScriptingNamespace()
+        {
+            var fullCode = ScriptExecutionFunctions.BuildCodeForCompilation(
+                "public class CommandScript : IFunplayCommand { public void Execute(ExecutionContext ctx) { ctx.ReturnValue = \"ok\"; } }",
+                "TempScript",
+                false,
+                out var actualClassName);
+
+            Assert.AreEqual("CommandScript", actualClassName);
+            StringAssert.StartsWith("using Funplay.Editor.Tools.Scripting;", fullCode);
+        }
+
+        [Test]
+        public void BuildCodeForCompilation_IFunplayCommandExistingUsing_DoesNotDuplicateScriptingNamespace()
+        {
+            var fullCode = ScriptExecutionFunctions.BuildCodeForCompilation(
+                "using Funplay.Editor.Tools.Scripting;\npublic class CommandScript : IFunplayCommand { public void Execute(ExecutionContext ctx) { ctx.ReturnValue = \"ok\"; } }",
+                "TempScript",
+                false,
+                out _);
+
+            var first = fullCode.IndexOf("using Funplay.Editor.Tools.Scripting;", StringComparison.Ordinal);
+            Assert.GreaterOrEqual(first, 0, fullCode);
+            Assert.AreEqual(first, fullCode.LastIndexOf("using Funplay.Editor.Tools.Scripting;", StringComparison.Ordinal), fullCode);
+        }
+
+        [Test]
         public void ReachableProjectNamespaceUsings_AreDerivedFromLoadedScriptAssemblies()
         {
             var projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));

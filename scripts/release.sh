@@ -241,7 +241,7 @@ run_unity_tests() {
 
   info "Running Unity EditMode tests"
   run "$unity_bin" \
-    -batchmode -quit \
+    -batchmode \
     -projectPath "$PROJECT_ROOT" \
     -runTests \
     -testPlatform EditMode \
@@ -343,7 +343,13 @@ public static class ExportFunplayUnityPackage
             fileName.StartsWith(".mcpregistry_", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        if (ContainsPathSegment(normalized, ".idea"))
+        if (ContainsPathSegment(normalized, ".git") ||
+            ContainsPathSegment(normalized, ".idea") ||
+            ContainsPathSegment(normalized, ".claude") ||
+            ContainsPathSegment(normalized, ".codex"))
+            return false;
+
+        if (ContainsPathSegment(normalized, ".github"))
             return false;
 
         if (ContainsPathSegment(normalized, "Tests"))
@@ -389,7 +395,7 @@ validate_unitypackage() {
   [[ -z "$bad_paths" ]] || fail "unitypackage contains paths outside Assets/unity-mcp:\n$bad_paths"
 
   local blocked_paths
-  blocked_paths="$(rg '(^|/)(ProjectSettings|Packages|Library|Tests|\.idea)(/|$)|(^|/)(CLAUDE\.md|\.DS_Store)(\.meta)?$|(^|/)\.mcpregistry_' "$OUT_DIR/unitypackage-pathnames.txt" || true)"
+  blocked_paths="$(rg '(^|/)(ProjectSettings|Packages|Library|Tests|\.git|\.idea|\.claude|\.codex|\.github)(/|$)|(^|/)(CLAUDE\.md|\.DS_Store)(\.meta)?$|(^|/)\.mcpregistry_' "$OUT_DIR/unitypackage-pathnames.txt" || true)"
   [[ -z "$blocked_paths" ]] || fail "unitypackage contains blocked paths:\n$blocked_paths"
 }
 

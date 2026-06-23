@@ -49,7 +49,7 @@ namespace Funplay.Editor.MCP.Server
                     "When Tool Exposure uses the default `full` profile, all registered MCP tools are available. Prefer specific tools for simple scene, asset, GameObject, component, prefab, camera, UI, package, animation, file, or visual-feedback operations.",
                     "If Tool Exposure has been customized and a named tool is unavailable, adapt to the exposed tool list and report which expected tool is missing.",
                     "Choose the correct edit surface: source files with normal repo tools, scene objects through Unity APIs and saved scenes, prefab assets through `PrefabUtility.LoadPrefabContents` and `SaveAsPrefabAsset`.",
-                    "For `execute_code`, prefer the IFunplayCommand template over the legacy `static string Run()`: implement `IFunplayCommand` and use `ctx.RegisterObjectCreation`, `ctx.RegisterObjectModification`, `ctx.DestroyObject` so created/modified objects participate in editor Undo automatically. Use `ctx.Log` / `ctx.LogWarning` / `ctx.LogError` for traceable output that comes back in the response (without polluting the Unity console).",
+                    "For `execute_code`, prefer the IFunplayCommand template over the legacy `static string Run()`: include `using Funplay.Editor.Tools.Scripting;`, implement `IFunplayCommand`, and use `ctx.RegisterObjectCreation`, `ctx.RegisterObjectModification`, `ctx.DestroyObject` so created/modified objects participate in editor Undo automatically. Use `ctx.Log` / `ctx.LogWarning` / `ctx.LogError` for traceable output that comes back in the response (without polluting the Unity console).",
                     "Batch related Unity-side changes in one guarded `execute_code` snippet, with explicit missing-object reports and concise before/after values.",
                     "`execute_code` now refreshes the asset database and waits for compilation to finish before compiling the snippet, so external file edits are picked up automatically. For other tools that depend on the latest assemblies (e.g. `get_compilation_errors`), still call `request_recompile` after external file edits.",
                     "Call `wait_for_compilation` before Play Mode, screenshots, or conclusions when a previous edit has not yet been confirmed.",
@@ -363,7 +363,7 @@ This file is managed by Funplay MCP for Unity.
 ## Codex workflow rules
 
 - Prefer project-local Funplay skills under `.codex/skills/`.
-- Use `execute_code` as the primary Unity automation tool. For new snippets, implement `IFunplayCommand` and use `ctx.RegisterObjectCreation` / `RegisterObjectModification` / `DestroyObject` so changes participate in Undo automatically.
+- Use `execute_code` as the primary Unity automation tool. For new snippets, include `using Funplay.Editor.Tools.Scripting;`, implement `IFunplayCommand`, and use `ctx.RegisterObjectCreation` / `RegisterObjectModification` / `DestroyObject` so changes participate in Undo automatically.
 - Inspect Unity objects through MCP before changing user-named scene or prefab targets. Carry the returned `instanceId` into follow-up calls (`find_method=by_id`) instead of re-resolving by name.
 - Tool returns are structured JSON (`{{success, message, data}}` / `{{success: false, code, error, data}}`). Branch on `code`, not free-form text.
 - Set component fields with `set_component_property(ies)` — it picks up `[SerializeField] private` fields and accepts Object references as `{{""fileID"": <instanceId>}}` or `{{""assetPath"": ""Assets/...""}}`.
@@ -405,7 +405,7 @@ This file is managed by Funplay MCP for Unity for Claude Code.
 ## Preferred workflow
 
 - Use Funplay MCP tools for Unity editor state and automation.
-- Use `execute_code` for non-trivial Unity orchestration. For new snippets, implement `IFunplayCommand` and use `ctx.RegisterObjectCreation` / `RegisterObjectModification` / `DestroyObject` so changes participate in Undo and `ctx.Log` for traceable output.
+- Use `execute_code` for non-trivial Unity orchestration. For new snippets, include `using Funplay.Editor.Tools.Scripting;`, implement `IFunplayCommand`, and use `ctx.RegisterObjectCreation` / `RegisterObjectModification` / `DestroyObject` so changes participate in Undo and `ctx.Log` for traceable output.
 - Inspect Unity objects through MCP before changing user-named scene or prefab targets. Carry the returned `instanceId` into follow-up calls (`find_method=by_id`) instead of re-resolving by name.
 - Tool returns are structured JSON (`{{success, message, data}}` / `{{success: false, code, error, data}}`). Branch on `code`, not free-form text.
 - Set component fields with `set_component_property(ies)` — it picks up `[SerializeField] private` fields and accepts Object references as `{{""fileID"": <instanceId>}}` or `{{""assetPath"": ""Assets/...""}}`.
@@ -561,6 +561,39 @@ process.stdout.write(JSON.stringify(payload));
 NODE
 ```
 
+## Recommended `execute_code` Template
+
+For non-trivial snippets, prefer `IFunplayCommand` over the legacy `public static string Run()` template. `execute_code` auto-adds `using Funplay.Editor.Tools.Scripting;` when `IFunplayCommand` is used, but include it explicitly in generated snippets for readability:
+
+```csharp
+using Funplay.Editor.Tools.Scripting;
+using UnityEngine;
+
+public class CommandScript : IFunplayCommand
+{
+    public void Execute(ExecutionContext ctx)
+    {
+        var root = GameObject.Find(""PracticeInGameUiRoot"");
+        if (root == null)
+        {
+            ctx.LogWarning(""PracticeInGameUiRoot not found"");
+            ctx.ReturnValue = ""missing root"";
+            return;
+        }
+
+        ctx.RegisterObjectModification(root);
+        ctx.Log(""Found {0}, active={1}"", root.name, root.activeInHierarchy);
+        ctx.ReturnValue = new
+        {
+            name = root.name,
+            active = root.activeInHierarchy
+        };
+    }
+}
+```
+
+Use `ctx.RegisterObjectCreation(obj)`, `ctx.RegisterObjectModification(obj)`, and `ctx.DestroyObject(obj)` instead of direct Undo calls when possible. Use `ctx.Log`, `ctx.LogWarning`, and `ctx.LogError` for output returned in the MCP response without polluting the Unity Console.
+
 ## Unity C# Patterns
 
 Add explicit `using` directives or use fully qualified types for project code. `execute_code` does not auto-inject project namespaces by default:
@@ -576,6 +609,15 @@ Use Unity null semantics for `UnityEngine.Object` references:
 if (image == null)
 {
     return ""Image missing"";
+}
+```
+
+Do not use `??=` to lazily resolve or rebind `UnityEngine.Object` references. Unity's destroyed or unbound serialized references can be fake-null: `field == null` returns true through Unity's overloaded operator, while C# `??=` can still treat the managed wrapper as non-null and skip the fallback assignment. Use an explicit Unity-null check instead:
+
+```csharp
+if (_hud == null)
+{
+    _hud = GetComponentInChildren<MyHud>(true);
 }
 ```
 

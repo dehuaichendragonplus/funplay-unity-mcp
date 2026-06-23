@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## [0.4.7] - 2026-06-23
+
+### Added
+- Added a recommended `IFunplayCommand` template to generated project skills, including traceable `ctx.Log` usage and Undo-aware object modification helpers.
+- Added generated skill guidance for Unity fake-null references: avoid `??=` when lazily resolving `UnityEngine.Object` references and use explicit `if (field == null)` checks instead.
+- Added a GitHub Actions workflow for publishing the MCP Registry entry with GitHub OIDC after the NuGet package is indexed.
+
+### Changed
+- `execute_code` now automatically adds `using Funplay.Editor.Tools.Scripting;` when a full-class snippet implements an unqualified `IFunplayCommand`, while avoiding duplicate usings when the namespace is already present.
+
+### Fixed
+- Fixed the release helper's Unity EditMode test invocation so batchmode waits for Test Runner completion and writes the XML result instead of exiting immediately after import.
+- Release unitypackage validation now also rejects `.github` paths so publishing automation files cannot leak into package exports.
+
 ## [0.4.6] - 2026-06-17
 
 ### Fixed

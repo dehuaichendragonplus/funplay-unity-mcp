@@ -121,6 +121,27 @@ public class CommandSyntax : IFunplayCommand
         }
 
         [UnityTest]
+        public IEnumerator ExecuteCode_IFunplayCommandMissingUsing_RunsWithRoslyn()
+        {
+            return ExecuteCodeAndAssert(
+                @"public class CommandSyntaxWithoutUsing : IFunplayCommand
+{
+    public void Execute(ExecutionContext ctx)
+    {
+        ctx.Log(""auto using ok"");
+        ctx.ReturnValue = ""ok"";
+    }
+}",
+                result =>
+                {
+                    AssertSuccess(result);
+                    var data = GetProperty<object>(result, "data");
+                    Assert.AreEqual("Roslyn", GetProperty<string>(data, "compiler"));
+                    Assert.AreEqual("ok", GetProperty<object>(data, "returnValue"));
+                });
+        }
+
+        [UnityTest]
         public IEnumerator ExecuteCode_CompilationError_ReturnsStructuredErrorFormat()
         {
             return ExecuteCodeAndAssert(

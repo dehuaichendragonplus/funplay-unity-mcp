@@ -24,6 +24,7 @@ namespace Funplay.Editor.Tools.Builtins
     {
         private const string HistorySessionKey = "Funplay.MCP.ExecuteCode.History";
         private const int HistoryMaxEntries = 50;
+        private const string FunplayScriptingNamespace = "Funplay.Editor.Tools.Scripting";
 
         [Description("Primary high-flexibility execution tool. Compiles a C# snippet with Unity's Roslyn csc first " +
                      "while preserving the in-memory compilation/execution flow, then runs the compiled assembly on the editor thread. " +
@@ -34,6 +35,7 @@ namespace Funplay.Editor.Tools.Builtins
                      "  2) Legacy: any class with `public static string Run()` — return value becomes the response message.\n" +
                      "Before compiling, the editor's AssetDatabase is refreshed and pending compilation is awaited, " +
                      "so external file edits are picked up automatically without a separate request_recompile. " +
+                     "When a full-class snippet implements IFunplayCommand, the required Funplay.Editor.Tools.Scripting using is added automatically if omitted. " +
                      "safety_checks blocks a small set of obviously dangerous patterns " +
                      "(File.Delete, Process.Start, while(true), Environment.Exit, AssetDatabase.DeleteAsset, etc) " +
                      "and, when strict filesystem safety is enabled, broad System.IO writes plus obvious absolute/system/traversal paths. " +
@@ -424,7 +426,8 @@ namespace Funplay.Editor.Tools.Builtins
                 if (match.Success)
                     actualClassName = match.Groups[1].Value;
 
-                return PrependMissingUsings(code, projectUsings);
+                var requiredUsings = GetRequiredSnippetUsings(code);
+                return PrependMissingUsings(code, requiredUsings + projectUsings);
             }
 
             return WrapCode(code, className, projectUsings);
@@ -442,7 +445,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEditor;
 using UnityEditor.SceneManagement;
-using Funplay.Editor.Tools.Scripting;
+using {FunplayScriptingNamespace};
 {projectUsings}
 public static class {className}
 {{
@@ -567,6 +570,22 @@ public static class {className}
             }
 
             return missing.Length == 0 ? code : missing + code;
+        }
+
+        private static string GetRequiredSnippetUsings(string code)
+        {
+            if (!UsesUnqualifiedIFunplayCommand(code))
+                return string.Empty;
+
+            return $"using {FunplayScriptingNamespace};\n";
+        }
+
+        internal static bool UsesUnqualifiedIFunplayCommand(string code)
+        {
+            if (string.IsNullOrEmpty(code))
+                return false;
+
+            return Regex.IsMatch(code, @"(?<![\w.])IFunplayCommand(?!\w)");
         }
     }
 }

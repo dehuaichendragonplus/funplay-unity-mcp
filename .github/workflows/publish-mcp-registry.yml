@@ -1,0 +1,100 @@
+name: Publish MCP Registry
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, without the leading v"
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [[ -n "$INPUT_VERSION" ]]; then
+            version="$INPUT_VERSION"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: $version" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for NuGet package
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          package_url="https://api.nuget.org/v3-flatcontainer/funplay.unity.mcp/${VERSION}/funplay.unity.mcp.${VERSION}.nupkg"
+          for attempt in {1..45}; do
+            if curl -fsI "$package_url" >/dev/null; then
+              echo "NuGet package is indexed: $package_url"
+              exit 0
+            fi
+
+            echo "NuGet package is not indexed yet; retry $attempt/45"
+            sleep 20
+          done
+
+          echo "NuGet package was not indexed in time: $package_url" >&2
+          exit 1
+
+      - name: Generate server.json
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cat > server.json <<EOF
+          {
+            "\$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+            "name": "io.github.FunplayAI/funplay-unity-mcp",
+            "title": "Funplay Unity MCP",
+            "description": "stdio bridge for the local Unity Editor MCP server from FunplayAI/funplay-unity-mcp.",
+            "repository": {
+              "url": "https://github.com/FunplayAI/funplay-unity-mcp",
+              "source": "github"
+            },
+            "version": "$VERSION",
+            "packages": [
+              {
+                "registryType": "nuget",
+                "identifier": "funplay.unity.mcp",
+                "version": "$VERSION",
+                "transport": {
+                  "type": "stdio"
+                }
+              }
+            ]
+          }
+          EOF
+
+      - name: Install mcp-publisher
+        shell: bash
+        run: |
+          curl -fL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar -xz -f - mcp-publisher
+
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish server.json
