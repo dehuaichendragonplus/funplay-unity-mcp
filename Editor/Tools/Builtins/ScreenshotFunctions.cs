@@ -801,8 +801,6 @@ namespace Funplay.Editor.Tools.Builtins
 
         private static string CaptureTexture(Texture sourceTexture, int width, int height, Rect? safeAreaOverlay, bool flipVertically = false)
         {
-            RenderTexture readableRenderTexture = null;
-            RenderTexture previousActive = null;
             Texture2D screenshot = null;
 
             try
@@ -811,19 +809,7 @@ namespace Funplay.Editor.Tools.Builtins
                 var sourceHeight = Mathf.Max(sourceTexture.height, 1);
                 ResolveCaptureSize(ref width, ref height, sourceWidth, sourceHeight);
 
-                readableRenderTexture = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32);
-                readableRenderTexture.Create();
-                Graphics.Blit(sourceTexture, readableRenderTexture);
-
-                previousActive = RenderTexture.active;
-                RenderTexture.active = readableRenderTexture;
-
-                screenshot = new Texture2D(width, height, TextureFormat.RGB24, false);
-                screenshot.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                screenshot.Apply();
-
-                if (flipVertically)
-                    FlipTextureVertically(screenshot);
+                screenshot = ReadTextureToTexture2D(sourceTexture, width, height, flipVertically);
 
                 if (safeAreaOverlay.HasValue)
                     DrawSafeAreaOverlay(screenshot, safeAreaOverlay.Value, sourceWidth, sourceHeight);
@@ -837,12 +823,6 @@ namespace Funplay.Editor.Tools.Builtins
             }
             finally
             {
-                RenderTexture.active = previousActive;
-                if (readableRenderTexture != null)
-                {
-                    readableRenderTexture.Release();
-                    UnityEngine.Object.DestroyImmediate(readableRenderTexture);
-                }
                 if (screenshot != null)
                     UnityEngine.Object.DestroyImmediate(screenshot);
             }
@@ -898,6 +878,52 @@ namespace Funplay.Editor.Tools.Builtins
             texture.Apply();
         }
 
+        internal static Texture2D ReadTextureToTexture2D(Texture sourceTexture, int width, int height, bool flipVertically)
+        {
+            RenderTexture readableRenderTexture = null;
+            RenderTexture previousActive = null;
+            Texture2D screenshot = null;
+
+            try
+            {
+                readableRenderTexture = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32);
+                readableRenderTexture.Create();
+                Graphics.Blit(sourceTexture, readableRenderTexture);
+
+                previousActive = RenderTexture.active;
+                RenderTexture.active = readableRenderTexture;
+
+                screenshot = ReadActiveRenderTextureToTexture2D(width, height, flipVertically);
+
+                var result = screenshot;
+                screenshot = null;
+                return result;
+            }
+            finally
+            {
+                RenderTexture.active = previousActive;
+                if (readableRenderTexture != null)
+                {
+                    readableRenderTexture.Release();
+                    UnityEngine.Object.DestroyImmediate(readableRenderTexture);
+                }
+                if (screenshot != null)
+                    UnityEngine.Object.DestroyImmediate(screenshot);
+            }
+        }
+
+        internal static Texture2D ReadActiveRenderTextureToTexture2D(int width, int height, bool flipVertically)
+        {
+            var screenshot = new Texture2D(width, height, TextureFormat.RGB24, false);
+            screenshot.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+            screenshot.Apply();
+
+            if (flipVertically)
+                FlipTextureVertically(screenshot);
+
+            return screenshot;
+        }
+
         internal static void DrawSafeAreaOverlay(Texture2D texture, Rect safeArea, int sourceWidth, int sourceHeight)
         {
             if (texture == null || sourceWidth <= 0 || sourceHeight <= 0)
@@ -940,8 +966,6 @@ namespace Funplay.Editor.Tools.Builtins
 
         private static string TryCapturePlayModeViewRenderTexture(int width, int height)
         {
-            RenderTexture readableRenderTexture = null;
-            RenderTexture previousActive = null;
             Texture2D screenshot = null;
 
             try
@@ -964,19 +988,15 @@ namespace Funplay.Editor.Tools.Builtins
                     return null;
                 }
 
-                readableRenderTexture = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32);
-                readableRenderTexture.Create();
-
                 // Read the already-rendered Game View frame. This avoids camera.Render(),
                 // which can bypass SRP cameras and produce black frames in URP/HDRP.
-                Graphics.Blit(sourceRenderTexture, readableRenderTexture);
-
-                previousActive = RenderTexture.active;
-                RenderTexture.active = readableRenderTexture;
-
-                screenshot = new Texture2D(width, height, TextureFormat.RGB24, false);
-                screenshot.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                screenshot.Apply();
+                // PlayModeView's internal RenderTexture is vertically inverted when read
+                // back through ReadPixels for PNG output.
+                screenshot = ReadTextureToTexture2D(
+                    sourceRenderTexture,
+                    width,
+                    height,
+                    flipVertically: ShouldFlipPlayModeViewRenderTexture());
 
                 var pngBytes = screenshot.EncodeToPNG();
                 var base64 = Convert.ToBase64String(pngBytes);
@@ -989,16 +1009,19 @@ namespace Funplay.Editor.Tools.Builtins
             }
             finally
             {
-                RenderTexture.active = previousActive;
-
-                if (readableRenderTexture != null)
-                {
-                    readableRenderTexture.Release();
-                    UnityEngine.Object.DestroyImmediate(readableRenderTexture);
-                }
                 if (screenshot != null)
                     UnityEngine.Object.DestroyImmediate(screenshot);
             }
+        }
+
+        internal static bool ShouldFlipPlayModeViewRenderTexture()
+        {
+            return true;
+        }
+
+        internal static bool ShouldFlipCameraRenderTexture()
+        {
+            return false;
         }
 
         /// <summary>
@@ -1038,9 +1061,7 @@ namespace Funplay.Editor.Tools.Builtins
                 camera.Render();
 
                 RenderTexture.active = renderTexture;
-                screenshot = new Texture2D(width, height, TextureFormat.RGB24, false);
-                screenshot.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                screenshot.Apply();
+                screenshot = ReadActiveRenderTextureToTexture2D(width, height, ShouldFlipCameraRenderTexture());
 
                 var pngBytes = screenshot.EncodeToPNG();
                 var base64 = Convert.ToBase64String(pngBytes);
@@ -1097,9 +1118,7 @@ namespace Funplay.Editor.Tools.Builtins
                 camera.Render();
 
                 RenderTexture.active = renderTexture;
-                screenshot = new Texture2D(width, height, TextureFormat.RGB24, false);
-                screenshot.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                screenshot.Apply();
+                screenshot = ReadActiveRenderTextureToTexture2D(width, height, ShouldFlipCameraRenderTexture());
 
                 var pngBytes = screenshot.EncodeToPNG();
                 var base64 = Convert.ToBase64String(pngBytes);

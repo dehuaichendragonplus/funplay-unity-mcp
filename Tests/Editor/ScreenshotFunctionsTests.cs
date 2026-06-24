@@ -65,6 +65,100 @@ namespace Funplay.Editor.Tests
         }
 
         [Test]
+        public void ReadTextureToTexture2D_WhenFlipRequested_MirrorsUnflippedRows()
+        {
+            var sourcePixels = new Texture2D(2, 3, TextureFormat.RGBA32, false);
+            var source = new RenderTexture(2, 3, 0, RenderTextureFormat.ARGB32);
+            Texture2D unflipped = null;
+            Texture2D flipped = null;
+            try
+            {
+                sourcePixels.SetPixel(0, 0, Color.red);
+                sourcePixels.SetPixel(1, 0, Color.red);
+                sourcePixels.SetPixel(0, 1, Color.green);
+                sourcePixels.SetPixel(1, 1, Color.green);
+                sourcePixels.SetPixel(0, 2, Color.blue);
+                sourcePixels.SetPixel(1, 2, Color.blue);
+                sourcePixels.Apply();
+                source.Create();
+                Graphics.CopyTexture(sourcePixels, source);
+
+                unflipped = ScreenshotFunctions.ReadTextureToTexture2D(source, 2, 3, flipVertically: false);
+                flipped = ScreenshotFunctions.ReadTextureToTexture2D(source, 2, 3, flipVertically: true);
+
+                AssertColorClose(unflipped.GetPixel(0, 2), flipped.GetPixel(0, 0));
+                AssertColorClose(unflipped.GetPixel(1, 1), flipped.GetPixel(1, 1));
+                AssertColorClose(unflipped.GetPixel(1, 0), flipped.GetPixel(1, 2));
+            }
+            finally
+            {
+                if (unflipped != null)
+                    UnityEngine.Object.DestroyImmediate(unflipped);
+                if (flipped != null)
+                    UnityEngine.Object.DestroyImmediate(flipped);
+                if (source != null)
+                    source.Release();
+                UnityEngine.Object.DestroyImmediate(source);
+                UnityEngine.Object.DestroyImmediate(sourcePixels);
+            }
+        }
+
+        [Test]
+        public void ShouldFlipPlayModeViewRenderTexture_DefaultsToTrue()
+        {
+            Assert.IsTrue(ScreenshotFunctions.ShouldFlipPlayModeViewRenderTexture());
+        }
+
+        [Test]
+        public void ShouldFlipCameraRenderTexture_DefaultsToFalse()
+        {
+            Assert.IsFalse(ScreenshotFunctions.ShouldFlipCameraRenderTexture());
+        }
+
+        [Test]
+        public void ReadActiveRenderTextureToTexture2D_WhenFlipRequested_MirrorsUnflippedRows()
+        {
+            var sourcePixels = new Texture2D(2, 3, TextureFormat.RGBA32, false);
+            var source = new RenderTexture(2, 3, 0, RenderTextureFormat.ARGB32);
+            var previousActive = RenderTexture.active;
+            Texture2D unflipped = null;
+            Texture2D flipped = null;
+
+            try
+            {
+                sourcePixels.SetPixel(0, 0, Color.red);
+                sourcePixels.SetPixel(1, 0, Color.red);
+                sourcePixels.SetPixel(0, 1, Color.green);
+                sourcePixels.SetPixel(1, 1, Color.green);
+                sourcePixels.SetPixel(0, 2, Color.blue);
+                sourcePixels.SetPixel(1, 2, Color.blue);
+                sourcePixels.Apply();
+                source.Create();
+                Graphics.CopyTexture(sourcePixels, source);
+
+                RenderTexture.active = source;
+                unflipped = ScreenshotFunctions.ReadActiveRenderTextureToTexture2D(2, 3, flipVertically: false);
+                flipped = ScreenshotFunctions.ReadActiveRenderTextureToTexture2D(2, 3, flipVertically: true);
+
+                AssertColorClose(unflipped.GetPixel(0, 2), flipped.GetPixel(0, 0));
+                AssertColorClose(unflipped.GetPixel(1, 1), flipped.GetPixel(1, 1));
+                AssertColorClose(unflipped.GetPixel(1, 0), flipped.GetPixel(1, 2));
+            }
+            finally
+            {
+                RenderTexture.active = previousActive;
+                if (unflipped != null)
+                    UnityEngine.Object.DestroyImmediate(unflipped);
+                if (flipped != null)
+                    UnityEngine.Object.DestroyImmediate(flipped);
+                if (source != null)
+                    source.Release();
+                UnityEngine.Object.DestroyImmediate(source);
+                UnityEngine.Object.DestroyImmediate(sourcePixels);
+            }
+        }
+
+        [Test]
         public void CoreToolProfile_IncludesSimulatorScreenshot()
         {
             Assert.IsTrue(MCPToolExportPolicy.DefaultCoreTools.Contains("capture_simulator_view"));
@@ -176,6 +270,13 @@ namespace Funplay.Editor.Tests
             Assert.Less(color.r, 0.1f);
             Assert.Less(color.g, 0.1f);
             Assert.Less(color.b, 0.1f);
+        }
+
+        private static void AssertColorClose(Color expected, Color actual)
+        {
+            Assert.That(actual.r, Is.EqualTo(expected.r).Within(0.01f));
+            Assert.That(actual.g, Is.EqualTo(expected.g).Within(0.01f));
+            Assert.That(actual.b, Is.EqualTo(expected.b).Within(0.01f));
         }
 
         private static Type ResolveType(string fullName, string assemblyName)

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.4.8] - 2026-06-24
+
+### Fixed
+- Fixed vertically flipped Game View screenshots when reading Unity's already-rendered PlayModeView frame.
+- Kept camera-rendered screenshots such as Scene View and fallback Game View captures in their native orientation.
+
 ## [0.4.7] - 2026-06-23
 
 ### Added
