@@ -2,7 +2,7 @@
 
 *中文 | [English](PROFILER_TOOLS.md)*
 
-本文档介绍 `Editor/Tools/Builtins/ProfilerFunctions.cs`(工具分类 `Profiler`)新增的 12 个 Profiler 相关工具,是引入这些工具的 PR 的配套说明——完整工具列表中它的位置见主 [README_CN.md](README_CN.md#内置工具)。
+本文档介绍 `Editor/Tools/Builtins/ProfilerFunctions.cs`(工具分类 `Profiler`)新增的 13 个 Profiler 相关工具,是引入这些工具的 PR 的配套说明——完整工具列表中它的位置见主 [README_CN.md](README_CN.md#内置工具)。
 
 ## 为什么需要这些工具
 
@@ -14,7 +14,7 @@
 - 拍摄并对比内存快照,发现内存增长趋势
 - 驱动 Frame Debugger,查看这一帧实际提交给 GPU 的内容
 
-这 12 个工具补齐了这个空缺。它们刻意做成了小而专一、扁平化的工具(一个工具只做一件事),而不是像 `manage_profiler` 那样的大型分发工具,以匹配本仓库现有的扁平工具风格。
+这 13 个工具补齐了这个空缺。它们刻意做成了小而专一、扁平化的工具(一个工具只做一件事),而不是像 `manage_profiler` 那样的大型分发工具,以匹配本仓库现有的扁平工具风格。
 
 ## 工具参考
 
@@ -47,6 +47,7 @@ Memory/Gfx Used Memory, Memory/Total Used Memory
 | 工具 | 参数 | 返回值 | 说明 |
 |---|---|---|---|
 | `get_object_memory` | `target`(string,必填) | 类型 + `Profiler.GetRuntimeMemorySizeLong` 的可读字节数 | 以 `Assets/` 开头的 `target` 通过 `AssetDatabase.LoadMainAssetAtPath` 解析;否则通过 `GameObject.Find` 解析(层级路径,例如 `Canvas/Panel/Icon`)。如果目标是 GameObject,还会汇总其全部子组件的内存(`Total (incl. all child components)`)。 |
+| `get_top_memory_objects` | `type_name`(string,可选,默认 `Texture2D`)、`top_n`(int,可选,默认 20,限制在 1–100) | 按内存降序排列的该类型 Top N 对象,每个对象带细节(贴图宽高+格式、网格顶点数、音频时长)和 `hideFlags` | `get_object_memory` 的反向查询:用 `Resources.FindObjectsOfTypeAll` 枚举该类型**全部**已加载对象,按 `GetRuntimeMemorySizeLong` 排序。传 `type_name='All'` 得到分类型总量汇总(Texture2D/RenderTexture/Mesh/AudioClip/Material/AnimationClip/Shader/Sprite)。其他任何继承 `UnityEngine.Object` 的类型名会通过反射在已加载程序集中解析。设计定位是 `memory_compare_snapshots` 发现增长之后的下一步:回答"到底是**哪些对象**在占内存"。注意:在 Editor 里也会枚举到编辑器自身的对象——flags 列非空(如 `HideAndDontSave`)通常代表编辑器内部对象或运行时创建的对象。 |
 
 ### 内存快照
 
@@ -89,7 +90,7 @@ Memory/Gfx Used Memory, Memory/Total Used Memory
 
 ## 测试报告
 
-全部 12 个工具经过了两轮独立测试:
+全部 13 个工具经过了两轮独立测试:
 
 ### 1. 开发期测试(逐工具,通过反射)
 
@@ -101,10 +102,11 @@ Memory/Gfx Used Memory, Memory/Total Used Memory
 - `get_object_memory` 分别针对真实项目里的一个贴图资源、一个真实场景 GameObject(核对 `Total (incl. all child components)` 的汇总逻辑)、以及一个不存在的路径(干净报错,不抛异常)。
 - `memory_take_snapshot` → `memory_list_snapshots` → `memory_compare_snapshots`,在两次快照之间分配约 400MB 的 `Texture2D`,确认增量方向正确——发现并修复了一个真实 bug:`ReadCounterOrZero` 辅助方法读的是 `ProfilerRecorder.LastValue`(Memory 类 recorder 的这个字段恒为 `0`),而不是 `CurrentValue`。同时发现并修复了一个真实的路径穿越 bug:`memory_compare_snapshots` 的 `path_a`/`path_b` 在加清洗守卫之前直接未经处理传给 `Path.Combine`(`../secret` 能逃出快照目录)。
 - `frame_debugger_enable` → `frame_debugger_get_events` → `frame_debugger_disable`,在 `disable` 前后用 `capture_game_view` 截图确认渲染能干净恢复。正是在这一步发现了需要驱动 `FrameDebuggerWindow`(见[实现细节](#实现细节))——第一次实现尝试正确地报告了"卡住"而不是硬凑一个悄悄不工作的工具,这也是找到并验证这套双类型反射方案的过程。
+- `get_top_memory_objects` 四种模式全部针对 Play Mode 下的真实项目测试:`'All'` 分类型汇总(8 个类型,总量合理);`Texture2D` 排行(正确区分出带 `hideFlags` 的编辑器内部对象——`GizmoIconAtlas HideAndDontSave`——和真实项目内容,如 4 个 8MB 的 TMP 字体图集、每个 2MB 且带图集名的 `sactx-*` sprite atlas 页);`RenderTexture`(URP 相机附件和 GameView RT,带尺寸/格式);错误类型名(干净返回已知类型建议列表,不抛异常);内置列表外的反射兜底类型(`Font` → 通过程序集扫描解析,列出 2 个 16MB 的中日韩字体)。
 
 ### 2. 真实端到端 MCP 测试(合入后,通过真正具名的 MCP 工具调用)
 
-把这些工具注册进 MCP server 之后(见下方说明),全部 12 个工具改用**真正的一等 MCP 工具调用**(不是反射)重新完整测试了一遍,针对一个真实运行、处于 Play Mode 的 Unity Editor 连续执行:
+把这些工具注册进 MCP server 之后(见下方说明),全部 13 个工具改用**真正的一等 MCP 工具调用**(不是反射)重新完整测试了一遍,针对一个真实运行、处于 Play Mode 的 Unity Editor 连续执行:
 
 ```
 profiler_start → profiler_status(9个recorder,运行中) → get_frame_timing(5)
@@ -119,6 +121,8 @@ profiler_start → profiler_status(9个recorder,运行中) → get_frame_timing(
 → frame_debugger_enable → frame_debugger_get_events(10)(78个真实事件,包含"WorldSea1"等对象名)
 → capture_game_view(干净,无异常) → frame_debugger_disable → capture_game_view(和之前一致,渲染完好)
 → profiler_stop → profiler_status(0个recorder,干净收尾)
+→ get_top_memory_objects("All")(分类型汇总:2125个Texture2D/310.76MB、28个RenderTexture/126.38MB...)
+→ get_top_memory_objects("Texture2D", 10)(带宽高/格式/hideFlags的排行列表)
 ```
 
 每一步都符合预期。这一轮没有发现回归问题。

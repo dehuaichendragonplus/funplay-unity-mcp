@@ -285,6 +285,149 @@ namespace Funplay.Editor.Tools.Builtins
             }
         }
 
+        // Known high-signal asset types for get_top_memory_objects. Order defines the 'All' summary order.
+        private static readonly (string Name, Type Type)[] KnownMemoryTypes =
+        {
+            ("Texture2D", typeof(Texture2D)),
+            ("RenderTexture", typeof(RenderTexture)),
+            ("Mesh", typeof(Mesh)),
+            ("AudioClip", typeof(AudioClip)),
+            ("Material", typeof(Material)),
+            ("AnimationClip", typeof(AnimationClip)),
+            ("Shader", typeof(Shader)),
+            ("Sprite", typeof(Sprite)),
+        };
+
+        [Description("List the top N memory-consuming loaded objects of a given type (Texture2D, RenderTexture, Mesh, AudioClip, " +
+                     "Material, AnimationClip, Shader, Sprite, or any UnityEngine.Object-derived type by name), enumerated via " +
+                     "Resources.FindObjectsOfTypeAll and measured with Profiler.GetRuntimeMemorySizeLong. " +
+                     "Complements memory_take_snapshot/memory_compare_snapshots: after a snapshot diff shows growth, use this " +
+                     "to find WHICH objects are consuming the memory. Pass type_name='All' for a per-type total summary instead " +
+                     "of individual objects. Note: in the Editor this also enumerates editor-owned objects; a non-empty flags " +
+                     "column (e.g. HideAndDontSave) usually indicates editor internals or runtime-created objects.")]
+        [ReadOnlyTool]
+        public static string GetTopMemoryObjects(
+            [ToolParam("Type to enumerate (e.g. 'Texture2D'), or 'All' for a per-type summary", Required = false)] string type_name = "Texture2D",
+            [ToolParam("Number of top objects to return (1-100)", Required = false)] int top_n = 20)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(type_name))
+                    type_name = "Texture2D";
+                top_n = Mathf.Clamp(top_n, 1, 100);
+
+                if (type_name.Trim().Equals("All", StringComparison.OrdinalIgnoreCase))
+                    return BuildPerTypeMemorySummary();
+
+                var type = ResolveUnityObjectType(type_name.Trim());
+                if (type == null)
+                    return $"Type not found (or not a UnityEngine.Object): {type_name}. " +
+                           "Try one of: " + string.Join(", ", GetKnownTypeNames()) + ", or 'All'.";
+
+                var objects = UnityEngine.Resources.FindObjectsOfTypeAll(type);
+                var entries = new List<(UnityEngine.Object Obj, long Size)>(objects.Length);
+                long totalSize = 0;
+                foreach (var obj in objects)
+                {
+                    if (obj == null) continue;
+                    var size = Profiler.GetRuntimeMemorySizeLong(obj);
+                    totalSize += size;
+                    entries.Add((obj, size));
+                }
+
+                entries.Sort((a, b) => b.Size.CompareTo(a.Size));
+
+                var sb = new StringBuilder();
+                sb.AppendLine($"Top memory objects: {type.Name}");
+                sb.AppendLine($"Total: {entries.Count} object(s), {FormatBytes(totalSize)}");
+                var count = Mathf.Min(top_n, entries.Count);
+                for (int i = 0; i < count; i++)
+                {
+                    var (obj, size) = entries[i];
+                    sb.Append($"[{i}] {FormatBytes(size)}  {obj.name}");
+                    AppendObjectDetail(sb, obj);
+                    sb.AppendLine();
+                }
+                if (entries.Count > count)
+                    sb.AppendLine($"... {entries.Count - count} more object(s) not shown (raise top_n to see more).");
+                return sb.ToString();
+            }
+            catch (Exception ex)
+            {
+                return ToolResultFormatter.Exception(ex);
+            }
+        }
+
+        private static string BuildPerTypeMemorySummary()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Loaded object memory by type:");
+            foreach (var (name, type) in KnownMemoryTypes)
+            {
+                var objects = UnityEngine.Resources.FindObjectsOfTypeAll(type);
+                long totalSize = 0;
+                foreach (var obj in objects)
+                {
+                    if (obj == null) continue;
+                    totalSize += Profiler.GetRuntimeMemorySizeLong(obj);
+                }
+                sb.AppendLine($"- {name}: {objects.Length} object(s), {FormatBytes(totalSize)}");
+            }
+            sb.AppendLine("Call again with a specific type_name to list the top objects of that type.");
+            return sb.ToString();
+        }
+
+        private static void AppendObjectDetail(StringBuilder sb, UnityEngine.Object obj)
+        {
+            switch (obj)
+            {
+                case Texture2D t2d:
+                    sb.Append($"  ({t2d.width}x{t2d.height} {t2d.format})");
+                    break;
+                case RenderTexture rt:
+                    sb.Append($"  ({rt.width}x{rt.height} {rt.format})");
+                    break;
+                case Mesh mesh:
+                    sb.Append($"  ({mesh.vertexCount} verts)");
+                    break;
+                case AudioClip clip:
+                    sb.Append($"  ({clip.length:F1}s {clip.frequency}Hz)");
+                    break;
+            }
+            if (obj.hideFlags != HideFlags.None)
+                sb.Append($"  [flags: {obj.hideFlags}]");
+        }
+
+        private static string[] GetKnownTypeNames()
+        {
+            var names = new string[KnownMemoryTypes.Length];
+            for (int i = 0; i < KnownMemoryTypes.Length; i++)
+                names[i] = KnownMemoryTypes[i].Name;
+            return names;
+        }
+
+        private static Type ResolveUnityObjectType(string typeName)
+        {
+            foreach (var (name, type) in KnownMemoryTypes)
+            {
+                if (name.Equals(typeName, StringComparison.OrdinalIgnoreCase))
+                    return type;
+            }
+
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type[] types;
+                try { types = asm.GetTypes(); }
+                catch { continue; }
+                foreach (var t in types)
+                {
+                    if (t.Name == typeName && typeof(UnityEngine.Object).IsAssignableFrom(t))
+                        return t;
+                }
+            }
+            return null;
+        }
+
         private static string FormatBytes(long bytes)
         {
             const double kilo = 1024.0;

@@ -2,7 +2,7 @@
 
 *[中文](PROFILER_TOOLS_CN.md) | English*
 
-This document covers the 12 Profiler-related tools added in `Editor/Tools/Builtins/ProfilerFunctions.cs` (category `Profiler`). It is a companion reference for the [pull request that introduces them](#) — see the main [README.md](README.md#built-in-tools) for how this fits into the full tool list.
+This document covers the 13 Profiler-related tools added in `Editor/Tools/Builtins/ProfilerFunctions.cs` (category `Profiler`). It is a companion reference for the [pull request that introduces them](#) — see the main [README.md](README.md#built-in-tools) for how this fits into the full tool list.
 
 ## Why
 
@@ -14,7 +14,7 @@ Before this addition, the only performance-related tools were `get_performance_s
 - take and diff memory snapshots to spot growth trends
 - drive the Frame Debugger to see what's actually being submitted to the GPU this frame
 
-These 12 tools close that gap. They're intentionally built as small, focused, flat tools (one job each) rather than one large `manage_profiler`-style dispatch tool, to match this repo's existing flat-tool convention.
+These 13 tools close that gap. They're intentionally built as small, focused, flat tools (one job each) rather than one large `manage_profiler`-style dispatch tool, to match this repo's existing flat-tool convention.
 
 ## Tool Reference
 
@@ -47,6 +47,7 @@ Memory/Gfx Used Memory, Memory/Total Used Memory
 | Tool | Params | Returns | Notes |
 |---|---|---|---|
 | `get_object_memory` | `target` (string, required) | Type + `Profiler.GetRuntimeMemorySizeLong` in human-readable bytes | `target` starting with `Assets/` resolves via `AssetDatabase.LoadMainAssetAtPath`; otherwise resolves via `GameObject.Find` (hierarchy path, e.g. `Canvas/Panel/Icon`). For a GameObject, also sums memory across all child components (`Total (incl. all child components)`). |
+| `get_top_memory_objects` | `type_name` (string, optional, default `Texture2D`), `top_n` (int, optional, default 20, clamped 1–100) | Top N objects of the type by memory, sorted descending, with per-object detail (texture WxH+format, mesh vertex count, audio length) and `hideFlags` | The reverse lookup to `get_object_memory`: enumerate ALL loaded objects of a type via `Resources.FindObjectsOfTypeAll` and rank by `GetRuntimeMemorySizeLong`. Pass `type_name='All'` for a per-type total summary (Texture2D/RenderTexture/Mesh/AudioClip/Material/AnimationClip/Shader/Sprite). Any other `UnityEngine.Object`-derived type name is resolved by reflection across loaded assemblies. Designed as the follow-up to a `memory_compare_snapshots` diff that shows growth: it answers *which objects* are consuming the memory. Note: in the Editor this also enumerates editor-owned objects — a non-empty flags column (e.g. `HideAndDontSave`) usually marks editor internals or runtime-created objects. |
 
 ### Memory snapshots
 
@@ -89,7 +90,7 @@ This project's `package.json` already declares `"unity": "2022.3"` as the minimu
 
 ## Test Report
 
-All 12 tools were tested twice, independently:
+All 13 tools were tested twice, independently:
 
 ### 1. Development-time testing (per-tool, via reflection)
 
@@ -101,10 +102,11 @@ During implementation, each tool was compiled and exercised individually against
 - `get_object_memory` against a real project texture asset, a real scene GameObject (checking the `Total (incl. all child components)` aggregation), and a nonexistent path (clean error, no exception).
 - `memory_take_snapshot` → `memory_list_snapshots` → `memory_compare_snapshots`, allocating ~400MB of `Texture2D` between two snapshots and confirming the delta direction was correct — caught and fixed a real bug where the `ReadCounterOrZero` helper read `ProfilerRecorder.LastValue` (which is `0` for Memory-category recorders) instead of `CurrentValue`. Also caught and fixed a real path-traversal bug where `memory_compare_snapshots`'s `path_a`/`path_b` reached `Path.Combine` unsanitized (`../secret` escaped the snapshot directory) before adding a `Path.GetFileName` guard.
 - `frame_debugger_enable` → `frame_debugger_get_events` → `frame_debugger_disable`, with `capture_game_view` screenshots taken before/after `disable` to confirm rendering resumes cleanly. This is where the `FrameDebuggerWindow`-driving requirement (see [Implementation notes](#implementation-notes)) was discovered — the first implementation attempt correctly reported itself as blocked rather than shipping a tool that silently didn't work, which is how the two-type reflection design was found and verified.
+- `get_top_memory_objects` in all four modes against a live project in Play Mode: `'All'` per-type summary (8 types, plausible totals); `Texture2D` top list (correctly surfaced editor internals with their `hideFlags` — `GizmoIconAtlas HideAndDontSave` — alongside real project content like 4× 8MB TMP font atlases and per-atlas-named 2MB `sactx-*` sprite atlas pages); `RenderTexture` (URP camera attachments and the GameView RT, with sizes/formats); a bad type name (clean suggestion message listing known types, no exception); and a reflection-fallback type not in the built-in list (`Font` → resolved via assembly scan, listed 2× 16MB CJK fonts).
 
 ### 2. Real end-to-end MCP testing (post-merge, via actual named MCP tool calls)
 
-After registering the tools with the MCP server (see the note below), all 12 were re-run **as real first-class MCP tool calls** (not reflection) against a live Unity Editor in Play Mode, back to back:
+After registering the tools with the MCP server (see the note below), all 13 were re-run **as real first-class MCP tool calls** (not reflection) against a live Unity Editor in Play Mode, back to back:
 
 ```
 profiler_start → profiler_status (9 recorders, running) → get_frame_timing(5)
@@ -119,6 +121,8 @@ profiler_start → profiler_status (9 recorders, running) → get_frame_timing(5
 → frame_debugger_enable → frame_debugger_get_events(10) (78 real events, incl. object names like "WorldSea1")
 → capture_game_view (clean, no corruption) → frame_debugger_disable → capture_game_view (identical, rendering intact)
 → profiler_stop → profiler_status (0 recorders, clean teardown)
+→ get_top_memory_objects("All") (per-type summary: 2125 Texture2D / 310.76MB, 28 RenderTexture / 126.38MB, ...)
+→ get_top_memory_objects("Texture2D", 10) (ranked list with WxH/format/hideFlags per object)
 ```
 
 Every step matched expected behavior. No regressions found in this pass.
