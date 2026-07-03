@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- The MCP Server panel's "Broker Mono Path" field now shows the real effect of the "leave empty to auto-detect" default instead of always rendering blank: when no override is set, the field displays the actually auto-detected Mono executable path (display-only — it does not persist as an override), and if auto-detection fails, the field stays empty and a red inline hint explains that broker mode needs the path set manually.
+
 ## [0.4.8] - 2026-06-24
 
 ### Fixed

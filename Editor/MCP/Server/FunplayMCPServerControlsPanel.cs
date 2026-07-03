@@ -3,6 +3,7 @@
 using System;
 using Funplay.Editor.Settings;
 using UnityEditor;
+using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Funplay.Editor.MCP.Server
@@ -14,6 +15,7 @@ namespace Funplay.Editor.MCP.Server
         private readonly Action _refreshStatus;
         private Label _brokerStatus;
         private TextField _brokerMonoPathField;
+        private Label _brokerMonoHint;
 
         public FunplayMCPServerControlsPanel(
             ISettingsController settings,
@@ -82,8 +84,6 @@ namespace Funplay.Editor.MCP.Server
             parent.Add(brokerToggle);
 
             _brokerMonoPathField = new TextField("Broker Mono Path");
-            _brokerMonoPathField.tooltip =
-                "Optional override for Unity's bundled Mono executable. Leave empty to auto-detect it from the Unity editor install.";
             _brokerMonoPathField.SetValueWithoutNotify(_settings.MCPBrokerMonoPath);
             _brokerMonoPathField.RegisterValueChangedCallback(evt =>
             {
@@ -92,6 +92,14 @@ namespace Funplay.Editor.MCP.Server
             });
             _brokerMonoPathField.style.marginBottom = 4;
             parent.Add(_brokerMonoPathField);
+
+            _brokerMonoHint = new Label();
+            _brokerMonoHint.style.whiteSpace = WhiteSpace.Normal;
+            _brokerMonoHint.style.color = new Color(0.9f, 0.35f, 0.35f);
+            _brokerMonoHint.style.marginBottom = 4;
+            parent.Add(_brokerMonoHint);
+
+            RefreshMonoPathAutoDetection();
 
             _brokerStatus = new Label();
             _brokerStatus.style.whiteSpace = WhiteSpace.Normal;
@@ -112,6 +120,54 @@ namespace Funplay.Editor.MCP.Server
         {
             if (_brokerMonoPathField != null)
                 _brokerMonoPathField.style.display = enabled ? DisplayStyle.Flex : DisplayStyle.None;
+            if (_brokerMonoHint != null)
+                _brokerMonoHint.style.display = enabled && !string.IsNullOrEmpty(_brokerMonoHint.text)
+                    ? DisplayStyle.Flex
+                    : DisplayStyle.None;
+        }
+
+        /// <summary>
+        /// Auto-detection is display-only: it never writes to <see cref="ISettingsController.MCPBrokerMonoPath"/>,
+        /// so clearing the field (or never touching it) keeps the setting at its real "auto-detect" default.
+        /// </summary>
+        private void RefreshMonoPathAutoDetection()
+        {
+            if (_brokerMonoPathField == null)
+                return;
+
+            if (!string.IsNullOrEmpty(_settings.MCPBrokerMonoPath))
+            {
+                _brokerMonoPathField.tooltip =
+                    "Optional override for Unity's bundled Mono executable. Leave empty to auto-detect it from the Unity editor install.";
+                SetMonoHint(null);
+                return;
+            }
+
+            var detected = MCPBrokerProcessManager.ResolveMono(null);
+            if (!string.IsNullOrEmpty(detected))
+            {
+                _brokerMonoPathField.SetValueWithoutNotify(detected);
+                _brokerMonoPathField.tooltip =
+                    "Auto-detected from the Unity editor install. Fill this in only if you need to override it.";
+                SetMonoHint(null);
+            }
+            else
+            {
+                _brokerMonoPathField.tooltip =
+                    "Optional override for Unity's bundled Mono executable. Leave empty to auto-detect it from the Unity editor install.";
+                SetMonoHint("Could not auto-detect Unity's bundled Mono executable. Broker mode needs this path set manually.");
+            }
+        }
+
+        private void SetMonoHint(string text)
+        {
+            if (_brokerMonoHint == null)
+                return;
+
+            _brokerMonoHint.text = text ?? string.Empty;
+            _brokerMonoHint.style.display = !string.IsNullOrEmpty(text) && _settings.MCPBrokerModeEnabled
+                ? DisplayStyle.Flex
+                : DisplayStyle.None;
         }
 
         private void UpdateBrokerStatus()
