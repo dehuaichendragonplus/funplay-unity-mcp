@@ -55,9 +55,22 @@ namespace Funplay.Editor.MCP.Server
 
             var portField = new IntegerField("Server Port");
             portField.SetValueWithoutNotify(_settings.MCPServerPort);
+            // Commit on Enter/blur rather than per keystroke, since committing triggers a
+            // full transport restart below -- typing a multi-digit port would otherwise
+            // restart the server once per digit.
+            portField.isDelayed = true;
             portField.RegisterValueChangedCallback(evt =>
             {
                 _settings.MCPServerPort = evt.newValue;
+
+                if (_settings.MCPServerEnabled)
+                {
+                    _ = _server.StopAsync();
+                    EditorApplication.delayCall += () => _ = _server.StartAsync();
+                }
+
+                EditorApplication.delayCall += () =>
+                    EditorApplication.delayCall += () => { UpdateBrokerStatus(); InvokeRefreshStatus(); };
             });
             portField.style.marginBottom = 8;
             parent.Add(portField);

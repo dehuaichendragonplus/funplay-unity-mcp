@@ -9,6 +9,10 @@
 
   Behavior, defaults, and the underlying settings are unchanged — both are presentation-only improvements.
 
+### Fixed
+- Fixed a broker process leak when the Server Port setting changes while broker mode is active: `MCPBrokerProcessManager.EnsureRunning` only shut down the previously recorded broker process when its recorded port matched the newly requested port, so changing the port left the old broker orphaned (and deleted its pid file, making it unrecoverable by any later cleanup) while a fresh broker started on the new port. The stale-broker shutdown now runs regardless of whether the port changed.
+- The "Server Port" field now restarts the server transport when changed (matching how the Transport Mode dropdown already behaves), instead of only updating the setting and waiting for an unrelated restart (e.g. a script recompile) to actually bind the new port. The field commits on Enter/blur rather than per keystroke to avoid restarting once per typed digit.
+
 ## [0.4.8] - 2026-06-24
 
 ### Fixed
