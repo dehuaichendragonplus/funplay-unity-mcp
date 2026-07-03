@@ -191,7 +191,7 @@ namespace Funplay.Editor.Tools.Builtins
                     if (filterLower == "warning" && !isWarning) continue;
                     if (filterLower == "log" && (isError || isWarning)) continue;
 
-                    var firstLine = message.Split('\n')[0];
+                    var firstLine = string.IsNullOrEmpty(message) ? string.Empty : message.Split('\n')[0];
                     if (!UnityLogsRepository.MatchesTextFilter(firstLine, filter_text))
                         continue;
 
