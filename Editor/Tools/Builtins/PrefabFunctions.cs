@@ -94,19 +94,32 @@ namespace Funplay.Editor.Tools.Builtins
                 return ToolResultFormatter.Error("PREFAB_NOT_FOUND", new { prefab_path });
 
             var current = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
-            if (current != null && current.assetPath != prefab_path && current.scene.isDirty)
-                return ToolResultFormatter.Error("ANOTHER_STAGE_DIRTY", new
-                {
-                    open_stage = current.assetPath,
-                    hint = "Call save_prefab_stage or close_prefab_stage(save=false) first."
-                });
+            if (current != null)
+            {
+                if (current.assetPath == prefab_path)
+                    return FormatPrefabStageStatus(current, "already open");
+
+                if (current.scene.isDirty)
+                    return ToolResultFormatter.Error("ANOTHER_STAGE_DIRTY", new
+                    {
+                        open_stage = current.assetPath,
+                        hint = "Call save_prefab_stage or close_prefab_stage(save=false) first."
+                    });
+            }
 
             var stage = UnityEditor.SceneManagement.PrefabStageUtility.OpenPrefab(prefab_path);
             if (stage == null)
                 return ToolResultFormatter.Error("PREFAB_STAGE_OPEN_FAILED", new { prefab_path });
 
+            return FormatPrefabStageStatus(stage, "opened");
+        }
+
+        private static string FormatPrefabStageStatus(
+            UnityEditor.SceneManagement.PrefabStage stage,
+            string status)
+        {
             var root = stage.prefabContentsRoot;
-            return $"Prefab stage opened: {stage.assetPath}\n" +
+            return $"Prefab stage {status}: {stage.assetPath}\n" +
                    $"Root: {root.name} (instanceId={root.GetInstanceID()}), children: {root.transform.childCount}";
         }
 
