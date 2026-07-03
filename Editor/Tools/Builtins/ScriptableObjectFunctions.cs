@@ -28,6 +28,8 @@ namespace Funplay.Editor.Tools.Builtins
                 return Response.Error("TYPE_NAME_REQUIRED");
             if (string.IsNullOrEmpty(asset_path) || !asset_path.StartsWith("Assets/") || !asset_path.EndsWith(".asset"))
                 return Response.Error("INVALID_ASSET_PATH", new { asset_path, hint = "Must start with 'Assets/' and end with '.asset'." });
+            if (asset_path.Contains("..") || asset_path.Contains("\\"))
+                return Response.Error("INVALID_ASSET_PATH", new { asset_path, hint = "Use a normalized Unity asset path under Assets/ without '..' or backslashes." });
 
             var type = ResolveScriptableObjectType(type_name);
             if (type == null)
@@ -40,7 +42,7 @@ namespace Funplay.Editor.Tools.Builtins
 
             var dir = System.IO.Path.GetDirectoryName(asset_path);
             if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
-                return Response.Error("FOLDER_NOT_FOUND", new { folder = dir, hint = "Create the folder first (e.g. via create_folder or the Project window)." });
+                return Response.Error("FOLDER_NOT_FOUND", new { folder = dir, hint = "Create the folder first in the Project window or with an existing file/folder workflow." });
 
             var instance = ScriptableObject.CreateInstance(type);
             if (instance == null)
