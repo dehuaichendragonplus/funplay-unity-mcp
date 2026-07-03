@@ -11,7 +11,7 @@
 
 ### Fixed
 - Fixed a broker process leak when the Server Port setting changes while broker mode is active: `MCPBrokerProcessManager.EnsureRunning` only shut down the previously recorded broker process when its recorded port matched the newly requested port, so changing the port left the old broker orphaned (and deleted its pid file, making it unrecoverable by any later cleanup) while a fresh broker started on the new port. The stale-broker shutdown now runs regardless of whether the port changed.
-- The "Server Port" field now restarts the server transport when changed (matching how the Transport Mode dropdown already behaves), instead of only updating the setting and waiting for an unrelated restart (e.g. a script recompile) to actually bind the new port. The field commits on Enter/blur rather than per keystroke to avoid restarting once per typed digit.
+- The "Server Port" field now commits on Enter/blur rather than per keystroke, so the settings-change restart path runs once per committed value instead of once per typed digit. The restart scheduler also uses editor-update fallbacks alongside `delayCall` for both stop and start phases, so port changes made from tools or non-IMGUI callbacks cannot get stuck with a scheduled-but-never-run restart.
 
 ## [0.4.8] - 2026-06-24
 

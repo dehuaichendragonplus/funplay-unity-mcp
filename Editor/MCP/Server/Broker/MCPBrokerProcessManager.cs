@@ -63,9 +63,10 @@ namespace Funplay.Editor.MCP.Server
                     // it orphaned and squatting on that port forever.
                     if (IsTcpPortOpen(existing.Port))
                     {
-                        SendShutdown(existing.Port, existing.Token);
+                        var shutdownAccepted = SendShutdown(existing.Port, existing.Token);
                         WaitForExit(existing.Pid, 2500);
-                        KillVerifiedProcess(existing.Pid);
+                        if (shutdownAccepted)
+                            KillVerifiedProcess(existing.Pid);
                     }
 
                     DeletePidFile(paths.PidFilePath);

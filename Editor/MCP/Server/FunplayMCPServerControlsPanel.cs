@@ -63,12 +63,6 @@ namespace Funplay.Editor.MCP.Server
             {
                 _settings.MCPServerPort = evt.newValue;
 
-                if (_settings.MCPServerEnabled)
-                {
-                    _ = _server.StopAsync();
-                    EditorApplication.delayCall += () => _ = _server.StartAsync();
-                }
-
                 EditorApplication.delayCall += () =>
                     EditorApplication.delayCall += () => { UpdateBrokerStatus(); InvokeRefreshStatus(); };
             });
