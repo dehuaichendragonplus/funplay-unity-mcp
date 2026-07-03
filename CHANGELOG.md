@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.4.9] - 2026-07-03
+
 ### Added
 - Added 13 Profiler tools (category `Profiler`): `profiler_start`/`profiler_stop`/`profiler_status` for session control; `get_frame_timing`/`get_counters` for CPU/GPU frame timing and persistent `ProfilerRecorder` counters; `get_object_memory` for per-asset/GameObject runtime memory footprint; `get_top_memory_objects` for ranking ALL loaded objects of a type by memory (the "which objects are consuming it" follow-up to a snapshot diff); `memory_take_snapshot`/`memory_list_snapshots`/`memory_compare_snapshots` for lightweight aggregate memory snapshots (not real `.snap` files); `frame_debugger_enable`/`frame_debugger_disable`/`frame_debugger_get_events` for driving the Frame Debugger via reflection. See [PROFILER_TOOLS.md](PROFILER_TOOLS.md) for the full reference, implementation notes, known limitations, and test report.
 - Added prefab stage editing tools: `open_prefab_stage` opens a prefab asset in Prefab Mode for isolated editing (hierarchy/component tools and `execute_code` then operate on the prefab contents), `save_prefab_stage` persists edits back to the `.prefab` asset without closing, and `close_prefab_stage` returns to the main stage with an explicit save/discard choice. Closing clears the stage's dirty flag first so a blocking "save changes?" modal can never stall the MCP request.
@@ -26,6 +28,9 @@
 - Fixed `get_performance_snapshot` and `analyze_scene_complexity` under-reporting scene stats in multi-scene projects. Both tools sourced root GameObjects from `SceneManager.GetActiveScene()` only, silently excluding any additively loaded scenes (e.g. a bootstrap scene loading a content scene on top); they now walk every loaded scene via `SceneManager.sceneCount`/`GetSceneAt`, and the "Scene:" summary line is renamed "Scene(s):" to list every scene that was counted.
 - Fixed `get_hierarchy` and `get_scene_info` silently omitting additively loaded scenes: both sourced content from `SceneManager.GetActiveScene()` only, so in multi-scene projects (e.g. a bootstrap scene additively loading a content scene) everything outside the active scene was invisible. Both tools now walk every loaded scene, label each as `(active)`/`(additive)`, and `get_hierarchy`'s `root_name` inactive-object search fallback also spans all loaded scenes.
 - `get_console_logs` now truncates each emitted line to 300 characters (annotated with the remaining length). A single log entry containing a huge one-line payload (observed in the wild: an entire 280KB save-file JSON logged to the console) previously blew up the whole tool response.
+
+### Contributors
+- Thanks @dehuaichendragonplus for the feature and fix PRs behind this release (#17, #18, #19, #20, #21, #22, #23, #24, #25, #27).
 
 ## [0.4.8] - 2026-06-24
 
