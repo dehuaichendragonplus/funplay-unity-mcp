@@ -4,6 +4,7 @@
 
 ### Changed
 - The MCP Server panel's "Broker Mono Path" field now shows the real effect of the "leave empty to auto-detect" default instead of always rendering blank: when no override is set, the field displays the actually auto-detected Mono executable path (display-only — it does not persist as an override), and if auto-detection fails, the field stays empty and a red inline hint explains that broker mode needs the path set manually.
+- The MCP Server panel's transport selector is now a "Transport Mode" dropdown (`Direct HTTP (default)` / `Broker Mode (Experimental)`) instead of a checkbox, making the two transports read as an explicit mutually-exclusive choice instead of an on/off flag. Behavior and default (Direct HTTP) are unchanged.
 
 ## [0.4.8] - 2026-06-24
 

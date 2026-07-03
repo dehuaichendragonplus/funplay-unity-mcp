@@ -1,6 +1,7 @@
 // Copyright (C) Funplay. Licensed under MIT.
 
 using System;
+using System.Collections.Generic;
 using Funplay.Editor.Settings;
 using UnityEditor;
 using UnityEngine;
@@ -10,6 +11,10 @@ namespace Funplay.Editor.MCP.Server
 {
     internal sealed class FunplayMCPServerControlsPanel
     {
+        private const string DirectTransportChoice = "Direct HTTP (default)";
+        private const string BrokerTransportChoice = "Broker Mode (Experimental)";
+        private static readonly List<string> TransportChoices = new List<string> { DirectTransportChoice, BrokerTransportChoice };
+
         private readonly ISettingsController _settings;
         private readonly MCPServerService _server;
         private readonly Action _refreshStatus;
@@ -57,22 +62,25 @@ namespace Funplay.Editor.MCP.Server
             portField.style.marginBottom = 8;
             parent.Add(portField);
 
-            var brokerToggle = new Toggle("Experimental Broker Mode");
-            brokerToggle.tooltip =
-                "Optional: runs a tiny local broker process that owns the MCP HTTP port and keeps " +
-                "client requests alive while Unity reloads the scripting domain. Default direct mode is unchanged.";
-            brokerToggle.SetValueWithoutNotify(_settings.MCPBrokerModeEnabled);
-            brokerToggle.RegisterValueChangedCallback(evt =>
+            var transportModeDropdown = new DropdownField("Transport Mode");
+            transportModeDropdown.choices = TransportChoices;
+            transportModeDropdown.tooltip =
+                "Direct HTTP (default): the server owns the MCP HTTP port directly. " +
+                "Broker Mode (Experimental): runs a tiny local broker process that owns the port instead and keeps " +
+                "client requests alive while Unity reloads the scripting domain.";
+            transportModeDropdown.SetValueWithoutNotify(_settings.MCPBrokerModeEnabled ? BrokerTransportChoice : DirectTransportChoice);
+            transportModeDropdown.RegisterValueChangedCallback(evt =>
             {
-                _settings.MCPBrokerModeEnabled = evt.newValue;
-                UpdateBrokerControls(evt.newValue);
+                var enabled = evt.newValue == BrokerTransportChoice;
+                _settings.MCPBrokerModeEnabled = enabled;
+                UpdateBrokerControls(enabled);
 
                 if (_settings.MCPServerEnabled)
                 {
                     _ = _server.StopAsync();
                     EditorApplication.delayCall += () => _ = _server.StartAsync();
                 }
-                else if (!evt.newValue)
+                else if (!enabled)
                 {
                     MCPBrokerProcessManager.Stop();
                 }
@@ -80,8 +88,8 @@ namespace Funplay.Editor.MCP.Server
                 EditorApplication.delayCall += () =>
                     EditorApplication.delayCall += () => { UpdateBrokerStatus(); InvokeRefreshStatus(); };
             });
-            brokerToggle.style.marginBottom = 4;
-            parent.Add(brokerToggle);
+            transportModeDropdown.style.marginBottom = 4;
+            parent.Add(transportModeDropdown);
 
             _brokerMonoPathField = new TextField("Broker Mono Path");
             _brokerMonoPathField.SetValueWithoutNotify(_settings.MCPBrokerMonoPath);
