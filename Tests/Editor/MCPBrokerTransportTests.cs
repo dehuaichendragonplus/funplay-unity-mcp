@@ -8,6 +8,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using Funplay.Editor.MCP.Server;
@@ -142,6 +143,31 @@ namespace Funplay.Editor
             }
 
             yield return null;
+        }
+
+        [Test]
+        public void BrokerProcessStateReader_AllowsStaleProtocolForUpgradeCleanup()
+        {
+            var root = CreateTempRoot();
+            var paths = CreateBrokerPaths(root);
+
+            try
+            {
+                WriteBrokerState(paths, pid: 12345, port: 8765, token: "stale-token", protocol: MCPBrokerProtocol.Version - 1);
+
+                var method = typeof(MCPBrokerProcessManager).GetMethod(
+                    "TryReadState",
+                    BindingFlags.Static | BindingFlags.NonPublic);
+                Assert.NotNull(method);
+
+                var args = new object[] { paths.PidFilePath, null };
+                Assert.IsTrue((bool)method.Invoke(null, args),
+                    "Stale protocol records must stay readable so upgrades can shut down old brokers.");
+            }
+            finally
+            {
+                DeleteTempRoot(root);
+            }
         }
 
         [UnityTest]
@@ -531,14 +557,15 @@ namespace Funplay.Editor
             MCPBrokerProcessManager.MCPBrokerRuntimePaths paths,
             int pid,
             int port,
-            string token)
+            string token,
+            int protocol = MCPBrokerProtocol.Version)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(paths.PidFilePath));
             File.WriteAllText(paths.PidFilePath,
                 pid + "\n" +
                 port + "\n" +
                 token + "\n" +
-                MCPBrokerProtocol.Version + "\n");
+                protocol + "\n");
         }
 
         private static Process StartLongRunningProcess()

@@ -490,8 +490,10 @@ namespace Funplay.Editor.MCP.Server
                     Protocol = protocol
                 };
 
-                return state.Protocol == MCPBrokerProtocol.Version &&
-                       state.Pid > 0 &&
+                // Keep stale protocol records readable so upgrades can shut down a
+                // previously started broker with its recorded token before starting
+                // the new protocol version.
+                return state.Pid > 0 &&
                        state.Port > 0 &&
                        !string.IsNullOrEmpty(state.Token);
             }
