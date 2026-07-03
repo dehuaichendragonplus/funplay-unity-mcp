@@ -455,6 +455,7 @@ namespace Funplay.Editor.MCP.Server
             }
             catch (Exception ex)
             {
+                MCPToolListChangeNotifier.RestorePending();
                 Debug.LogError($"[Funplay MCP Server] Failed to send response: {ex.Message}");
             }
         }
