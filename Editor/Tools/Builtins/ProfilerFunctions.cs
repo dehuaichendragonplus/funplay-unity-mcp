@@ -421,7 +421,8 @@ namespace Funplay.Editor.Tools.Builtins
                 catch { continue; }
                 foreach (var t in types)
                 {
-                    if (t.Name == typeName && typeof(UnityEngine.Object).IsAssignableFrom(t))
+                    if (t.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase) &&
+                        typeof(UnityEngine.Object).IsAssignableFrom(t))
                         return t;
                 }
             }
@@ -567,8 +568,12 @@ namespace Funplay.Editor.Tools.Builtins
         private static void AppendDelta(StringBuilder sb, string label, long before, long after)
         {
             var delta = after - before;
-            var sign = delta >= 0 ? "+" : "";
-            sb.AppendLine($"- {label}: {FormatBytes(before)} -> {FormatBytes(after)} ({sign}{FormatBytes(delta)})");
+            sb.AppendLine($"- {label}: {FormatBytes(before)} -> {FormatBytes(after)} ({FormatSignedBytes(delta)})");
+        }
+
+        private static string FormatSignedBytes(long bytes)
+        {
+            return bytes >= 0 ? "+" + FormatBytes(bytes) : "-" + FormatBytes(-bytes);
         }
 
         private static long ReadCounterOrZero(string category, string statName)
