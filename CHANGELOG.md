@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Real Unity memory snapshot (.snap) tools -- the full-detail captures the Memory Profiler package opens for object-level reference-chain analysis, complementing the existing lightweight aggregate-counter snapshots (`memory_take_snapshot`): `memory_take_full_snapshot` captures via `Unity.Profiling.Memory.MemoryProfiler.TakeSnapshot` (configurable CaptureFlags, async completion, written into the Memory Profiler package's snapshot folder), `memory_list_full_snapshots` lists them, and `memory_open_snapshot_in_profiler` loads one into the Memory Profiler window (com.unity.memoryprofiler package required for that last step only; capture itself is a core-engine API). Combine with `capture_editor_window('Memory Profiler')` to inspect the loaded analysis visually.
+
 ## [0.4.9] - 2026-07-03
 
 ### Added
