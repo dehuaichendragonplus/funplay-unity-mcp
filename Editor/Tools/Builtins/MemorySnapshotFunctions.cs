@@ -1,6 +1,7 @@
 // Copyright (C) Funplay. Licensed under MIT.
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -194,6 +195,123 @@ namespace Funplay.Editor.Tools.Builtins
                 new { path, hint = "Use capture_editor_window('Memory Profiler') to inspect the analysis visually." }));
         }
 
+        [Description("Query a REAL .snap memory snapshot for the largest native objects (Texture2D, Mesh, RenderTexture, " +
+                     "AudioClip, etc.) -- structured JSON, no window or screenshot needed. This is the 'WHAT is holding " +
+                     "the memory' half of the workflow started by memory_take_full_snapshot. Loads headlessly via the " +
+                     "Memory Profiler package's crawler (no window opened); requires the com.unity.memoryprofiler package.")]
+        [ReadOnlyTool]
+        public static string MemoryQueryTopObjects(
+            [ToolParam("Absolute .snap path, or a file name inside the snapshot folder (with or without the .snap extension).")] string snapshot,
+            [ToolParam("Only include objects whose native type name contains this text (case-insensitive), e.g. 'Texture2D'.", Required = false)] string type_filter = null,
+            [ToolParam("Number of objects to return (1-500). Default 20.", Required = false)] int top_n = 20)
+        {
+            string path;
+            try { path = ResolveSnapshotPath(snapshot?.Trim()); }
+            catch (Exception ex) { return ToolResultFormatter.Error("SNAPSHOT_DIR_FAILED", new { message = ex.Message }); }
+            if (path == null)
+                return ToolResultFormatter.Error("SNAPSHOT_NOT_FOUND", new { requested = snapshot, hint = "Use memory_list_full_snapshots to see what exists." });
+
+            top_n = Mathf.Clamp(top_n, 1, 500);
+
+            using (var accessor = SnapshotAccessor.Load(path, out var loadError))
+            {
+                if (accessor == null)
+                    return ToolResultFormatter.Error("SNAPSHOT_QUERY_FAILED", new { path, message = loadError });
+
+                try
+                {
+                    var rows = accessor.EnumerateNativeObjects();
+                    if (!string.IsNullOrWhiteSpace(type_filter))
+                        rows = rows.Where(r => r.TypeName.IndexOf(type_filter, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                    var top = rows.OrderByDescending(r => r.Size)
+                        .Take(top_n)
+                        .Select(r => new
+                        {
+                            native_object_index = r.Index,
+                            name = r.Name,
+                            type = r.TypeName,
+                            size_bytes = r.Size,
+                            size = FormatBytes((long)r.Size)
+                        })
+                        .ToArray();
+
+                    return JsonConvert.SerializeObject(Response.Success(
+                        $"{top.Length} native object(s) (out of {accessor.NativeObjectCount} total in the snapshot).",
+                        new { path, type_filter, objects = top }));
+                }
+                catch (Exception ex)
+                {
+                    return ToolResultFormatter.Error("SNAPSHOT_QUERY_FAILED", new { path, message = ex.Message });
+                }
+            }
+        }
+
+        [Description("Query a REAL .snap memory snapshot for what references a specific native object, or what it " +
+                     "references -- structured JSON reference-chain data, no window or screenshot needed. Answers " +
+                     "'who is keeping this texture alive'. Pass the object name or native_object_index from " +
+                     "memory_query_top_objects. Loads headlessly via the Memory Profiler package's crawler; requires " +
+                     "the com.unity.memoryprofiler package. Only native objects can be looked up directly; the returned " +
+                     "reference lists may include managed objects and GC handles as informational entries.")]
+        [ReadOnlyTool]
+        public static string MemoryQueryReferences(
+            [ToolParam("Absolute .snap path, or a file name inside the snapshot folder (with or without the .snap extension).")] string snapshot,
+            [ToolParam("Native object name (exact match preferred, falls back to a case-insensitive substring match) or the native_object_index from memory_query_top_objects.")] string target,
+            [ToolParam("'referenced_by' (default, what keeps this object alive) or 'references_to' (what this object points to).", Required = false)] string direction = "referenced_by",
+            [ToolParam("Maximum number of references to return (1-200). Default 30.", Required = false)] int max_results = 30)
+        {
+            string path;
+            try { path = ResolveSnapshotPath(snapshot?.Trim()); }
+            catch (Exception ex) { return ToolResultFormatter.Error("SNAPSHOT_DIR_FAILED", new { message = ex.Message }); }
+            if (path == null)
+                return ToolResultFormatter.Error("SNAPSHOT_NOT_FOUND", new { requested = snapshot, hint = "Use memory_list_full_snapshots to see what exists." });
+
+            var directionNormalized = (direction ?? "referenced_by").Trim().ToLowerInvariant();
+            if (directionNormalized != "referenced_by" && directionNormalized != "references_to")
+                return ToolResultFormatter.Error("INVALID_DIRECTION", new { direction, accepted = new[] { "referenced_by", "references_to" } });
+
+            max_results = Mathf.Clamp(max_results, 1, 200);
+
+            using (var accessor = SnapshotAccessor.Load(path, out var loadError))
+            {
+                if (accessor == null)
+                    return ToolResultFormatter.Error("SNAPSHOT_QUERY_FAILED", new { path, message = loadError });
+
+                try
+                {
+                    if (!accessor.TryResolveNativeObject(target, out var resolved, out var candidates))
+                    {
+                        return ToolResultFormatter.Error("TARGET_NOT_FOUND", new
+                        {
+                            requested = target,
+                            candidates,
+                            hint = candidates.Length > 0
+                                ? "Multiple objects matched; pass the exact name or native_object_index to disambiguate."
+                                : "No native object matched. Use memory_query_top_objects to find the exact name/index."
+                        });
+                    }
+
+                    var references = accessor.GetReferences(resolved.Index, referencedBy: directionNormalized == "referenced_by")
+                        .Take(max_results)
+                        .ToArray();
+
+                    return JsonConvert.SerializeObject(Response.Success(
+                        $"{references.Length} {directionNormalized} reference(s) for '{resolved.Name}'.",
+                        new
+                        {
+                            path,
+                            target = new { native_object_index = resolved.Index, name = resolved.Name, type = resolved.TypeName, size_bytes = resolved.Size, size = FormatBytes((long)resolved.Size) },
+                            direction = directionNormalized,
+                            references
+                        }));
+                }
+                catch (Exception ex)
+                {
+                    return ToolResultFormatter.Error("SNAPSHOT_QUERY_FAILED", new { path, message = ex.Message });
+                }
+            }
+        }
+
         // --- Helpers ---
 
         private static bool TryParseCaptureFlags(string raw, out CaptureFlags flags, out object error)
@@ -334,6 +452,190 @@ namespace Funplay.Editor.Tools.Builtins
             if (bytes >= 1L << 20) return $"{bytes / (double)(1L << 20):F2} MB";
             if (bytes >= 1L << 10) return $"{bytes / (double)(1L << 10):F2} KB";
             return $"{bytes} B";
+        }
+
+        /// <summary>
+        /// Reflection wrapper around the Memory Profiler package's crawled snapshot
+        /// (<c>CachedSnapshot</c>), loaded headlessly via <c>SnapshotDataService.
+        /// LoadWithoutLoadingToUI</c> -- no window is ever opened. Exposes the two
+        /// pieces of the package's internal data model that answer "what is the
+        /// biggest thing" and "who references it": the native object table
+        /// (struct-of-arrays: <c>ObjectName</c>/<c>Size</c>/<c>NativeTypeArrayIndex</c>,
+        /// parallel by index) and the connection graph
+        /// (<c>Connections.ReferencedBy</c>/<c>ReferenceTo</c>, a
+        /// <c>Dictionary&lt;SourceIndex, List&lt;SourceIndex&gt;&gt;</c>).
+        /// <c>DynamicArray&lt;T&gt;</c>'s indexer returns <c>ref T</c>, which plain
+        /// reflection cannot invoke -- values are read by walking the array's
+        /// non-generic <see cref="IEnumerable"/> implementation instead, whose
+        /// <c>Current</c> returns by value.
+        /// </summary>
+        private sealed class SnapshotAccessor : IDisposable
+        {
+            public struct NativeObjectRow
+            {
+                public long Index;
+                public string Name;
+                public string TypeName;
+                public ulong Size;
+            }
+
+            private readonly object _cachedSnapshot;
+            private readonly Type _cachedSnapshotType;
+            private readonly List<NativeObjectRow> _rows;
+
+            public long NativeObjectCount => _rows.Count;
+
+            private SnapshotAccessor(object cachedSnapshot, Type cachedSnapshotType, List<NativeObjectRow> rows)
+            {
+                _cachedSnapshot = cachedSnapshot;
+                _cachedSnapshotType = cachedSnapshotType;
+                _rows = rows;
+            }
+
+            public static SnapshotAccessor Load(string path, out string error)
+            {
+                error = null;
+                try
+                {
+                    var serviceType = ResolvePackageType("Unity.MemoryProfiler.Editor.SnapshotDataService");
+                    if (serviceType == null)
+                    {
+                        error = "The com.unity.memoryprofiler package is not installed. Install it via the Package Manager to analyze snapshots.";
+                        return null;
+                    }
+
+                    var service = Activator.CreateInstance(serviceType, nonPublic: true);
+                    var loadMethod = serviceType.GetMethod("LoadWithoutLoadingToUI", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    var cachedSnapshot = loadMethod?.Invoke(service, new object[] { path, true });
+                    if (cachedSnapshot == null)
+                    {
+                        error = "The Memory Profiler package could not crawl this file (LoadWithoutLoadingToUI returned null).";
+                        return null;
+                    }
+
+                    var csType = cachedSnapshot.GetType();
+                    var rows = BuildNativeObjectRows(cachedSnapshot, csType);
+                    return new SnapshotAccessor(cachedSnapshot, csType, rows);
+                }
+                catch (Exception ex)
+                {
+                    error = ex.InnerException?.Message ?? ex.Message;
+                    return null;
+                }
+            }
+
+            private static List<NativeObjectRow> BuildNativeObjectRows(object cachedSnapshot, Type csType)
+            {
+                var nativeObjects = csType.GetField("NativeObjects", BindingFlags.Public | BindingFlags.Instance).GetValue(cachedSnapshot);
+                var noType = nativeObjects.GetType();
+
+                var count = (long)noType.GetField("Count").GetValue(nativeObjects);
+                var objectNames = (string[])noType.GetField("ObjectName").GetValue(nativeObjects);
+                var sizes = EnumerateDynamicArray(noType.GetField("Size").GetValue(nativeObjects));
+                var typeIndices = EnumerateDynamicArray(noType.GetField("NativeTypeArrayIndex").GetValue(nativeObjects));
+
+                var nativeTypes = csType.GetField("NativeTypes", BindingFlags.Public | BindingFlags.Instance).GetValue(cachedSnapshot);
+                var typeNames = (string[])nativeTypes.GetType().GetField("TypeName").GetValue(nativeTypes);
+
+                var rows = new List<NativeObjectRow>((int)Math.Min(count, int.MaxValue));
+                for (long i = 0; i < count; i++)
+                {
+                    var typeIndex = Convert.ToInt32(typeIndices[(int)i]);
+                    var typeName = (typeIndex >= 0 && typeIndex < typeNames.Length) ? typeNames[typeIndex] : "<unknown type>";
+                    rows.Add(new NativeObjectRow
+                    {
+                        Index = i,
+                        Name = objectNames[i],
+                        TypeName = typeName,
+                        Size = Convert.ToUInt64(sizes[(int)i])
+                    });
+                }
+                return rows;
+            }
+
+            /// <summary>Walks a package DynamicArray&lt;T&gt; via its non-generic IEnumerable (Current returns by value).</summary>
+            private static List<object> EnumerateDynamicArray(object dynamicArray)
+            {
+                var values = new List<object>();
+                var getEnumerator = dynamicArray.GetType().GetInterfaceMap(typeof(IEnumerable)).TargetMethods[0];
+                var enumerator = (IEnumerator)getEnumerator.Invoke(dynamicArray, null);
+                while (enumerator.MoveNext())
+                    values.Add(enumerator.Current);
+                return values;
+            }
+
+            public IEnumerable<NativeObjectRow> EnumerateNativeObjects() => _rows;
+
+            public bool TryResolveNativeObject(string target, out NativeObjectRow resolved, out string[] candidates)
+            {
+                resolved = default;
+                candidates = Array.Empty<string>();
+
+                if (string.IsNullOrWhiteSpace(target))
+                    return false;
+
+                target = target.Trim();
+
+                if (long.TryParse(target, out var index) && index >= 0 && index < _rows.Count)
+                {
+                    resolved = _rows[(int)index];
+                    return true;
+                }
+
+                var exact = _rows.Where(r => string.Equals(r.Name, target, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (exact.Count == 1)
+                {
+                    resolved = exact[0];
+                    return true;
+                }
+
+                var partial = (exact.Count > 1 ? exact : _rows.Where(r => r.Name.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0)).ToList();
+                if (partial.Count == 1)
+                {
+                    resolved = partial[0];
+                    return true;
+                }
+
+                candidates = partial.Take(20).Select(r => $"#{r.Index} '{r.Name}' ({r.TypeName}, {r.Size} bytes)").ToArray();
+                return false;
+            }
+
+            /// <summary>Resolves the referrers/referents of a native object via Connections.ReferencedBy/ReferenceTo.</summary>
+            public IEnumerable<object> GetReferences(long nativeObjectIndex, bool referencedBy)
+            {
+                var sourceIndexType = _cachedSnapshotType.GetNestedType("SourceIndex", BindingFlags.Public | BindingFlags.NonPublic);
+                var sourceIdType = sourceIndexType.GetNestedType("SourceId", BindingFlags.Public | BindingFlags.NonPublic);
+                var nativeObjectId = Enum.Parse(sourceIdType, "NativeObject");
+                var getNameMethod = sourceIndexType.GetMethod("GetName", new[] { _cachedSnapshotType });
+                var idProperty = sourceIndexType.GetProperty("Id");
+                var indexProperty = sourceIndexType.GetProperty("Index");
+
+                var connections = _cachedSnapshotType.GetField("Connections", BindingFlags.Public | BindingFlags.Instance).GetValue(_cachedSnapshot);
+                var dictProperty = connections.GetType().GetProperty(referencedBy ? "ReferencedBy" : "ReferenceTo", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var dict = (IDictionary)dictProperty.GetValue(connections);
+
+                var key = Activator.CreateInstance(sourceIndexType, nativeObjectId, nativeObjectIndex);
+                if (!dict.Contains(key))
+                    yield break;
+
+                foreach (var entry in (IEnumerable)dict[key])
+                {
+                    var kind = idProperty.GetValue(entry).ToString();
+                    var entryIndex = (long)indexProperty.GetValue(entry);
+                    var name = (string)getNameMethod.Invoke(entry, new object[] { _cachedSnapshot });
+
+                    object sizeBytes = null;
+                    if (kind == "NativeObject" && entryIndex >= 0 && entryIndex < _rows.Count)
+                        sizeBytes = _rows[(int)entryIndex].Size;
+
+                    yield return new { kind, index = entryIndex, name, size_bytes = sizeBytes };
+                }
+            }
+
+            public void Dispose()
+            {
+                (_cachedSnapshot as IDisposable)?.Dispose();
+            }
         }
     }
 }
