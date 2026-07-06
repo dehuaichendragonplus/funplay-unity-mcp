@@ -73,10 +73,10 @@ namespace Funplay.Editor.Tools.Builtins
         [Description("Assign a material to a GameObject's renderer")]
         [SceneEditingTool]
         public static string AssignMaterial(
-            [ToolParam("Name of the GameObject")] string game_object_name,
+            [ToolParam("GameObject name, hierarchy path, or instance ID. Finds inactive objects too.")] string game_object_name,
             [ToolParam("Path to the material asset")] string material_path)
         {
-            var go = GameObject.Find(game_object_name);
+            var go = ObjectsHelper.FindTarget(game_object_name);
             if (go == null)
                 return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { game_object_name });
 
@@ -88,9 +88,9 @@ namespace Funplay.Editor.Tools.Builtins
             if (mat == null)
                 return ToolResultFormatter.Error("MATERIAL_NOT_FOUND", new { material_path });
 
-            Undo.RecordObject(renderer, $"Assign material to {game_object_name}");
+            Undo.RecordObject(renderer, $"Assign material to {go.name}");
             renderer.sharedMaterial = mat;
-            return $"Assigned material '{mat.name}' to '{game_object_name}'";
+            return $"Assigned material '{mat.name}' to '{go.name}'";
         }
 
         [Description("Search for assets by type and name")]

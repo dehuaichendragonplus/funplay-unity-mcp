@@ -14,7 +14,7 @@ namespace Funplay.Editor.Tools.Builtins
         [Description("Get all camera properties including type, FOV, clipping planes, background, and culling mask")]
         [ReadOnlyTool]
         public static string GetCameraProperties(
-            [ToolParam("Name of the camera GameObject (default: Main Camera)", Required = false)] string game_object_name = null)
+            [ToolParam("Camera GameObject name, hierarchy path, or instance ID (default: Main Camera). Finds inactive objects too.", Required = false)] string game_object_name = null)
         {
             var camera = FindCamera(game_object_name);
             if (camera == null)
@@ -46,7 +46,7 @@ namespace Funplay.Editor.Tools.Builtins
         public static string SetCameraProjection(
             [ToolParam("Projection type: 'orthographic' or 'perspective'")] string projection,
             [ToolParam("Orthographic size or FOV value", Required = false)] float size = -1f,
-            [ToolParam("Name of the camera GameObject", Required = false)] string game_object_name = null)
+            [ToolParam("Camera GameObject name, hierarchy path, or instance ID. Finds inactive objects too.", Required = false)] string game_object_name = null)
         {
             var camera = FindCamera(game_object_name);
             if (camera == null)
@@ -72,7 +72,7 @@ namespace Funplay.Editor.Tools.Builtins
         [Description("Set camera clipping planes, background color, and clear flags")]
         [SceneEditingTool]
         public static string SetCameraSettings(
-            [ToolParam("Name of the camera GameObject", Required = false)] string game_object_name = null,
+            [ToolParam("Camera GameObject name, hierarchy path, or instance ID. Finds inactive objects too.", Required = false)] string game_object_name = null,
             [ToolParam("Near clip plane distance", Required = false)] float near = -1f,
             [ToolParam("Far clip plane distance", Required = false)] float far = -1f,
             [ToolParam("Background color as 'r,g,b,a' or hex", Required = false)] string background_color = null,
@@ -127,7 +127,7 @@ namespace Funplay.Editor.Tools.Builtins
         [SceneEditingTool]
         public static string SetCameraCullingMask(
             [ToolParam("Comma-separated layer names to show (e.g. 'Default,UI,Water')")] string layers,
-            [ToolParam("Name of the camera GameObject", Required = false)] string game_object_name = null,
+            [ToolParam("Camera GameObject name, hierarchy path, or instance ID. Finds inactive objects too.", Required = false)] string game_object_name = null,
             [ToolParam("Mode: 'set' replaces mask, 'add' adds layers, 'remove' removes layers", Required = false)] string mode = "set")
         {
             var camera = FindCamera(game_object_name);
@@ -168,7 +168,7 @@ namespace Funplay.Editor.Tools.Builtins
             if (string.IsNullOrEmpty(name))
                 return Camera.main ?? Object.FindFirstObjectByType<Camera>();
 
-            var go = GameObject.Find(name);
+            var go = ObjectsHelper.FindTarget(name);
             if (go == null) return null;
             return go.GetComponent<Camera>();
         }

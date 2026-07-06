@@ -42,6 +42,17 @@ namespace Funplay.Editor.Tools.Helpers
         }
 
         /// <summary>
+        /// Drop-in replacement for <c>GameObject.Find(target)</c>: same "just resolve this string"
+        /// call shape, but accepts an instance ID or hierarchy path in addition to a bare name,
+        /// and finds inactive objects across every loaded scene (and the open prefab stage) --
+        /// all things <c>GameObject.Find</c> cannot do.
+        /// </summary>
+        public static GameObject FindTarget(string target, bool searchInChildren = false, GameObject root = null)
+        {
+            return FindObject(target, MethodByIdOrNameOrPath, searchInactive: true, searchInChildren, root);
+        }
+
+        /// <summary>
         /// Core finder. <paramref name="findAll"/> false returns at most one element (the first match).
         /// When the active prefab stage is open it is searched in addition to the active scene.
         /// </summary>

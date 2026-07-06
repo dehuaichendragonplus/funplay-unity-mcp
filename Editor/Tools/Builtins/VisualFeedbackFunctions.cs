@@ -18,23 +18,23 @@ namespace Funplay.Editor.Tools.Builtins
         [Description("Select a GameObject in the scene hierarchy and inspector")]
         [ReadOnlyTool]
         public static string SelectObject(
-            [ToolParam("Name of the GameObject to select")] string name)
+            [ToolParam("GameObject name, hierarchy path, or instance ID. Finds inactive objects too.")] string name)
         {
-            var go = GameObject.Find(name);
+            var go = ObjectsHelper.FindTarget(name);
             if (go == null)
                 return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { name });
 
             Selection.activeGameObject = go;
             EditorGUIUtility.PingObject(go);
-            return $"Selected '{name}'";
+            return $"Selected '{go.name}'";
         }
 
         [Description("Focus the Scene View camera on a specific GameObject")]
         [ReadOnlyTool]
         public static string FocusOnObject(
-            [ToolParam("Name of the GameObject to focus on")] string name)
+            [ToolParam("GameObject name, hierarchy path, or instance ID. Finds inactive objects too.")] string name)
         {
-            var go = GameObject.Find(name);
+            var go = ObjectsHelper.FindTarget(name);
             if (go == null)
                 return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { name });
 
@@ -43,7 +43,7 @@ namespace Funplay.Editor.Tools.Builtins
             {
                 SceneView.lastActiveSceneView.FrameSelected();
             }
-            return $"Focused scene view on '{name}'";
+            return $"Focused scene view on '{go.name}'";
         }
 
         [Description("Ping/highlight an asset in the Project window")]
@@ -88,8 +88,9 @@ namespace Funplay.Editor.Tools.Builtins
                      "Returns Debug.Log, Debug.LogWarning, and Debug.LogError output. " +
                      "Useful for checking runtime behavior after play mode actions. " +
                      "Supports reading from the live log cache, clearing the cache, time-based filtering, " +
-                     "case-insensitive text filtering, and collapsing repeated identical messages into one " +
-                     "'message (xN)' line so spammy warnings don't drown out unique entries.")]
+                     "case-insensitive text filtering, collapsing repeated identical messages into one " +
+                     "'message (xN)' line so spammy warnings don't drown out unique entries, and optionally " +
+                     "including each entry's stack trace (truncated separately from the message).")]
         [ReadOnlyTool]
         public static string GetConsoleLogs(
             [ToolParam("Filter by log type: 'all', 'log', 'warning', 'error'", Required = false)] string log_type = "all",
@@ -98,7 +99,8 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Clear the cached logs before reading", Required = false)] bool clear_cache = false,
             [ToolParam("Only include cached log entries from the last N seconds (cache/auto only)", Required = false)] int since_seconds = 0,
             [ToolParam("Only include entries whose message contains this text (case-insensitive)", Required = false)] string filter_text = null,
-            [ToolParam("Collapse repeated identical messages into one line with a (xN) count", Required = false)] bool group_duplicates = false)
+            [ToolParam("Collapse repeated identical messages into one line with a (xN) count", Required = false)] bool group_duplicates = false,
+            [ToolParam("Include each entry's stack trace, indented below the message (its own truncation cap, separate from the message's).", Required = false)] bool include_stack_trace = false)
         {
             count = Mathf.Clamp(count, 1, 200);
             since_seconds = Mathf.Clamp(since_seconds, 0, 86400);
@@ -115,7 +117,7 @@ namespace Funplay.Editor.Tools.Builtins
 
             if (source == "cache" || source == "auto")
             {
-                var cachedLogs = logsRepository?.GetRecentLogs(log_type, count, since_seconds, filter_text, group_duplicates);
+                var cachedLogs = logsRepository?.GetRecentLogs(log_type, count, since_seconds, filter_text, group_duplicates, include_stack_trace);
                 if (!string.IsNullOrEmpty(cachedLogs))
                     return cachedLogs;
 
@@ -191,11 +193,20 @@ namespace Funplay.Editor.Tools.Builtins
                     if (filterLower == "warning" && !isWarning) continue;
                     if (filterLower == "log" && (isError || isWarning)) continue;
 
-                    var firstLine = string.IsNullOrEmpty(message) ? string.Empty : message.Split('\n')[0];
+                    // LogEntries concatenates "message\nstackTrace" into a single string;
+                    // split it once so the primary line and the (optional) trace get their
+                    // own truncation caps instead of the trace silently disappearing.
+                    var newlineIndex = message?.IndexOf('\n') ?? -1;
+                    var firstLine = message == null ? string.Empty
+                        : newlineIndex >= 0 ? message.Substring(0, newlineIndex) : message;
                     if (!UnityLogsRepository.MatchesTextFilter(firstLine, filter_text))
                         continue;
 
-                    lines.Add($"[{typeLabel}] {UnityLogsRepository.TruncateLine(firstLine)}");
+                    var stackSuffix = string.Empty;
+                    if (include_stack_trace && newlineIndex >= 0)
+                        stackSuffix = UnityLogsRepository.FormatStackTrace(message.Substring(newlineIndex + 1));
+
+                    lines.Add($"[{typeLabel}] {UnityLogsRepository.TruncateLine(firstLine)}{stackSuffix}");
                 }
 
                 if (lines.Count == 0)

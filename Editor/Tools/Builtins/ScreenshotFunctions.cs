@@ -235,7 +235,7 @@ namespace Funplay.Editor.Tools.Builtins
                      "Returns base64 PNG images in data.captures[] together with the angle metadata of each.")]
         [ReadOnlyTool]
         public static object CaptureMultiview(
-            [ToolParam("Name (or hierarchy path) of the GameObject to focus on. Empty/null uses the active scene's bounds center.", Required = false)] string target_name = null,
+            [ToolParam("GameObject name, hierarchy path, or instance ID to focus on (finds inactive objects too). Empty/null uses the active scene's bounds center.", Required = false)] string target_name = null,
             [ToolParam("Capture mode: surround (6 axis views, default) or orbit (azimuth × elevations grid).", Required = false)] string mode = "surround",
             [ToolParam("Per-frame width in pixels. Default 512.", Required = false)] int width = 512,
             [ToolParam("Per-frame height in pixels. Default 512.", Required = false)] int height = 512,
@@ -533,7 +533,7 @@ namespace Funplay.Editor.Tools.Builtins
 
             if (!string.IsNullOrWhiteSpace(requestedName))
             {
-                var go = GameObject.Find(requestedName);
+                var go = ObjectsHelper.FindTarget(requestedName);
                 if (go == null)
                 {
                     errorCode = "TARGET_NOT_FOUND";
