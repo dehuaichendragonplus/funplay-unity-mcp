@@ -1,6 +1,7 @@
 // Copyright (C) Funplay. Licensed under MIT.
 
 using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using Funplay.Editor.MCP.Server;
@@ -165,6 +166,13 @@ namespace Funplay.Editor.Tests
         }
 
         [Test]
+        public void CoreToolProfile_IncludesEditorWindowAndRaycastDiagnostics()
+        {
+            Assert.IsTrue(MCPToolExportPolicy.DefaultCoreTools.Contains("capture_editor_window"));
+            Assert.IsTrue(MCPToolExportPolicy.DefaultCoreTools.Contains("raycast_at_point"));
+        }
+
+        [Test]
         public void CaptureSimulatorView_ExposesDeviceNameParameter()
         {
             var method = typeof(ScreenshotFunctions).GetMethod(
@@ -198,6 +206,108 @@ namespace Funplay.Editor.Tests
             ScreenshotFunctions.ResolveCaptureSize(ref widthFromHeight, ref requestedHeight, 2048, 2732);
             Assert.AreEqual(512, widthFromHeight);
             Assert.AreEqual(683, requestedHeight);
+        }
+
+        [Test]
+        public void TryResolveScreenshotOutputPath_DefaultsInsideProjectRoot()
+        {
+            var projectRoot = MakeTempProjectRoot();
+
+            Assert.IsTrue(ScreenshotFunctions.TryResolveScreenshotOutputPath(
+                null,
+                "game-view",
+                projectRoot,
+                out var path,
+                out var error));
+
+            Assert.IsNull(error);
+            AssertPathInside(path, projectRoot);
+            StringAssert.StartsWith("game-view-", Path.GetFileName(path));
+            StringAssert.EndsWith(".png", path);
+        }
+
+        [Test]
+        public void TryResolveScreenshotOutputPath_AcceptsRelativeProjectPath()
+        {
+            var projectRoot = MakeTempProjectRoot();
+
+            Assert.IsTrue(ScreenshotFunctions.TryResolveScreenshotOutputPath(
+                "Library/FunplayMcp/Screenshots/custom.png",
+                "game-view",
+                projectRoot,
+                out var path,
+                out var error));
+
+            Assert.IsNull(error);
+            Assert.AreEqual(
+                Path.GetFullPath(Path.Combine(projectRoot, "Library/FunplayMcp/Screenshots/custom.png")),
+                path);
+        }
+
+        [Test]
+        public void TryResolveScreenshotOutputPath_AcceptsAbsoluteProjectPath()
+        {
+            var projectRoot = MakeTempProjectRoot();
+            var outputPath = Path.Combine(projectRoot, "Library", "FunplayMcp", "Screenshots", "absolute.png");
+
+            Assert.IsTrue(ScreenshotFunctions.TryResolveScreenshotOutputPath(
+                outputPath,
+                "game-view",
+                projectRoot,
+                out var path,
+                out var error));
+
+            Assert.IsNull(error);
+            Assert.AreEqual(Path.GetFullPath(outputPath), path);
+        }
+
+        [Test]
+        public void TryResolveScreenshotOutputPath_RejectsTraversalOutsideProjectRoot()
+        {
+            var projectRoot = MakeTempProjectRoot();
+
+            Assert.IsFalse(ScreenshotFunctions.TryResolveScreenshotOutputPath(
+                "../outside.png",
+                "game-view",
+                projectRoot,
+                out var path,
+                out var error));
+
+            Assert.IsNull(path);
+            Assert.IsNotNull(error);
+        }
+
+        [Test]
+        public void TryResolveScreenshotOutputPath_RejectsAbsoluteOutsideProjectRoot()
+        {
+            var projectRoot = MakeTempProjectRoot();
+            var outputPath = Path.GetFullPath(Path.Combine(projectRoot, "..", "outside.png"));
+
+            Assert.IsFalse(ScreenshotFunctions.TryResolveScreenshotOutputPath(
+                outputPath,
+                "game-view",
+                projectRoot,
+                out var path,
+                out var error));
+
+            Assert.IsNull(path);
+            Assert.IsNotNull(error);
+        }
+
+        [Test]
+        public void TryResolveScreenshotOutputPath_RejectsNonPngExtension()
+        {
+            var projectRoot = MakeTempProjectRoot();
+
+            Assert.IsFalse(ScreenshotFunctions.TryResolveScreenshotOutputPath(
+                "Library/FunplayMcp/Screenshots/custom.jpg",
+                "game-view",
+                projectRoot,
+                out var path,
+                out var error));
+
+            Assert.IsNull(path);
+            Assert.IsNotNull(error);
         }
 
         [Test]
@@ -277,6 +387,20 @@ namespace Funplay.Editor.Tests
             Assert.That(actual.r, Is.EqualTo(expected.r).Within(0.01f));
             Assert.That(actual.g, Is.EqualTo(expected.g).Within(0.01f));
             Assert.That(actual.b, Is.EqualTo(expected.b).Within(0.01f));
+        }
+
+        private static string MakeTempProjectRoot()
+        {
+            return Path.Combine(Path.GetTempPath(), "FunplayMcpScreenshotPathTests", Guid.NewGuid().ToString("N"));
+        }
+
+        private static void AssertPathInside(string path, string root)
+        {
+            var normalizedRoot = Path.GetFullPath(root);
+            if (!normalizedRoot.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                normalizedRoot += Path.DirectorySeparatorChar;
+
+            StringAssert.StartsWith(normalizedRoot, Path.GetFullPath(path));
         }
 
         private static Type ResolveType(string fullName, string assemblyName)
