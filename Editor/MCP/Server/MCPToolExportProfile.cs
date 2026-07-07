@@ -28,6 +28,8 @@ namespace Funplay.Editor.MCP.Server
             "capture_scene_view",
             "capture_game_view",
             "capture_simulator_view",
+            "capture_editor_window",
+            "raycast_at_point",
             "wait_for_compilation",
             "request_recompile",
             "get_compilation_errors",

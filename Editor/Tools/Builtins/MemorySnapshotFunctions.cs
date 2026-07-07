@@ -171,13 +171,11 @@ namespace Funplay.Editor.Tools.Builtins
         public static string MemoryOpenSnapshotInProfiler(
             [ToolParam("Absolute .snap path, or a file name inside the snapshot folder (with or without the .snap extension).")] string snapshot)
         {
-            if (string.IsNullOrWhiteSpace(snapshot))
-                return ToolResultFormatter.Error("INVALID_SNAPSHOT", new { hint = "Provide a .snap path or file name." });
-
             string path;
             try
             {
-                path = ResolveSnapshotPath(snapshot.Trim());
+                if (!TryResolveSnapshotPath(snapshot, ResolveStorageDirectory(), out path, out var pathError))
+                    return ToolResultFormatter.Error("INVALID_SNAPSHOT", pathError);
             }
             catch (Exception ex)
             {
@@ -206,7 +204,11 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Number of objects to return (1-500). Default 20.", Required = false)] int top_n = 20)
         {
             string path;
-            try { path = ResolveSnapshotPath(snapshot?.Trim()); }
+            try
+            {
+                if (!TryResolveSnapshotPath(snapshot, ResolveStorageDirectory(), out path, out var pathError))
+                    return ToolResultFormatter.Error("INVALID_SNAPSHOT", pathError);
+            }
             catch (Exception ex) { return ToolResultFormatter.Error("SNAPSHOT_DIR_FAILED", new { message = ex.Message }); }
             if (path == null)
                 return ToolResultFormatter.Error("SNAPSHOT_NOT_FOUND", new { requested = snapshot, hint = "Use memory_list_full_snapshots to see what exists." });
@@ -261,7 +263,11 @@ namespace Funplay.Editor.Tools.Builtins
             [ToolParam("Maximum number of references to return (1-200). Default 30.", Required = false)] int max_results = 30)
         {
             string path;
-            try { path = ResolveSnapshotPath(snapshot?.Trim()); }
+            try
+            {
+                if (!TryResolveSnapshotPath(snapshot, ResolveStorageDirectory(), out path, out var pathError))
+                    return ToolResultFormatter.Error("INVALID_SNAPSHOT", pathError);
+            }
             catch (Exception ex) { return ToolResultFormatter.Error("SNAPSHOT_DIR_FAILED", new { message = ex.Message }); }
             if (path == null)
                 return ToolResultFormatter.Error("SNAPSHOT_NOT_FOUND", new { requested = snapshot, hint = "Use memory_list_full_snapshots to see what exists." });
@@ -314,7 +320,7 @@ namespace Funplay.Editor.Tools.Builtins
 
         // --- Helpers ---
 
-        private static bool TryParseCaptureFlags(string raw, out CaptureFlags flags, out object error)
+        internal static bool TryParseCaptureFlags(string raw, out CaptureFlags flags, out object error)
         {
             error = null;
             if (string.IsNullOrWhiteSpace(raw))
@@ -368,18 +374,75 @@ namespace Funplay.Editor.Tools.Builtins
             return Path.Combine(projectRoot, DefaultStorageDirName);
         }
 
-        private static string ResolveSnapshotPath(string requested)
+        internal static bool TryResolveSnapshotPath(string requested, string storageDirectory, out string path, out object error)
         {
-            if (Path.IsPathRooted(requested))
-                return File.Exists(requested) ? requested : null;
+            path = null;
+            error = null;
 
-            var dir = ResolveStorageDirectory();
-            var candidate = Path.Combine(dir, requested);
-            if (File.Exists(candidate))
-                return candidate;
-            if (!requested.EndsWith(".snap", StringComparison.OrdinalIgnoreCase) && File.Exists(candidate + ".snap"))
-                return candidate + ".snap";
-            return null;
+            if (string.IsNullOrWhiteSpace(requested))
+            {
+                error = new { hint = "Provide a .snap path or file name." };
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(storageDirectory))
+            {
+                error = new { hint = "Memory snapshot storage directory could not be resolved." };
+                return false;
+            }
+
+            var trimmed = requested.Trim();
+            var isRooted = Path.IsPathRooted(trimmed);
+            var hasSnapExtension = trimmed.EndsWith(".snap", StringComparison.OrdinalIgnoreCase);
+            if (isRooted && !hasSnapExtension)
+            {
+                error = new { requested, hint = "Absolute snapshot paths must end with .snap." };
+                return false;
+            }
+
+            if (isRooted)
+            {
+                var fullPath = Path.GetFullPath(trimmed);
+                path = File.Exists(fullPath) ? fullPath : null;
+                return true;
+            }
+
+            var normalizedDirectory = Path.GetFullPath(storageDirectory);
+            var fileName = hasSnapExtension ? trimmed : trimmed + ".snap";
+            var candidate = Path.GetFullPath(Path.Combine(normalizedDirectory, fileName));
+            if (!IsPathInsideDirectory(candidate, normalizedDirectory))
+            {
+                error = new
+                {
+                    requested,
+                    snapshot_directory = normalizedDirectory,
+                    hint = "Relative snapshot names must resolve inside the Memory Profiler snapshot directory."
+                };
+                return false;
+            }
+
+            path = File.Exists(candidate) ? candidate : null;
+            return true;
+        }
+
+        private static bool IsPathInsideDirectory(string path, string directory)
+        {
+            var comparison = StringComparison.OrdinalIgnoreCase;
+            var normalizedPath = Path.GetFullPath(path);
+            var normalizedDirectory = EnsureTrailingSeparator(Path.GetFullPath(directory));
+            return normalizedPath.StartsWith(normalizedDirectory, comparison);
+        }
+
+        private static string EnsureTrailingSeparator(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return path;
+
+            var last = path[path.Length - 1];
+            if (last == Path.DirectorySeparatorChar || last == Path.AltDirectorySeparatorChar)
+                return path;
+
+            return path + Path.DirectorySeparatorChar;
         }
 
         private static bool TryOpenSnapshotInProfiler(string path, out string error)
