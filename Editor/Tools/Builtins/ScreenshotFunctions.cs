@@ -26,7 +26,7 @@ namespace Funplay.Editor.Tools.Builtins
             "Use for high-resolution captures whose base64 payload would be too large for the transport.";
 
         private const string OutputPathParamDescription =
-            "Optional output .png path (absolute, or relative to the project root). " +
+            "Optional output .png path under the Unity project root (absolute, or relative to the project root). " +
             "Default: " + ScreenshotDirRelative + "/<name>-<timestamp>.png. Only used when save_to_file=true.";
 
         /// <summary>
@@ -54,25 +54,8 @@ namespace Funplay.Editor.Tools.Builtins
             try
             {
                 var projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Directory.GetCurrentDirectory();
-                string path;
-                if (string.IsNullOrWhiteSpace(outputPath))
-                {
-                    var fileName = baseName + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".png";
-                    path = Path.Combine(projectRoot, ScreenshotDirRelative, fileName);
-                }
-                else
-                {
-                    path = outputPath.Trim();
-                    if (!path.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-                    {
-                        error = new { provided = outputPath, hint = "output_path must end with .png" };
-                        return false;
-                    }
-
-                    if (!Path.IsPathRooted(path))
-                        path = Path.Combine(projectRoot, path);
-                    path = Path.GetFullPath(path);
-                }
+                if (!TryResolveScreenshotOutputPath(outputPath, baseName, projectRoot, out var path, out error))
+                    return false;
 
                 var directory = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(directory))
@@ -86,6 +69,79 @@ namespace Funplay.Editor.Tools.Builtins
                 error = new { message = ex.Message };
                 return false;
             }
+        }
+
+        internal static bool TryResolveScreenshotOutputPath(
+            string outputPath,
+            string baseName,
+            string projectRoot,
+            out string path,
+            out object error)
+        {
+            path = null;
+            error = null;
+
+            if (string.IsNullOrWhiteSpace(projectRoot))
+            {
+                error = new { hint = "Unity project root could not be resolved." };
+                return false;
+            }
+
+            var normalizedRoot = Path.GetFullPath(projectRoot);
+            string candidatePath;
+            if (string.IsNullOrWhiteSpace(outputPath))
+            {
+                var fileName = baseName + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".png";
+                candidatePath = Path.Combine(normalizedRoot, ScreenshotDirRelative, fileName);
+            }
+            else
+            {
+                var trimmed = outputPath.Trim();
+                if (!trimmed.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                {
+                    error = new { provided = outputPath, hint = "output_path must end with .png" };
+                    return false;
+                }
+
+                candidatePath = Path.IsPathRooted(trimmed)
+                    ? trimmed
+                    : Path.Combine(normalizedRoot, trimmed);
+            }
+
+            var normalizedPath = Path.GetFullPath(candidatePath);
+            if (!IsPathInsideDirectory(normalizedPath, normalizedRoot))
+            {
+                error = new
+                {
+                    provided = outputPath,
+                    project_root = normalizedRoot,
+                    hint = "output_path must resolve inside the Unity project root."
+                };
+                return false;
+            }
+
+            path = normalizedPath;
+            return true;
+        }
+
+        private static bool IsPathInsideDirectory(string path, string directory)
+        {
+            var comparison = StringComparison.OrdinalIgnoreCase;
+            var normalizedPath = Path.GetFullPath(path);
+            var normalizedDirectory = EnsureTrailingSeparator(Path.GetFullPath(directory));
+            return normalizedPath.StartsWith(normalizedDirectory, comparison);
+        }
+
+        private static string EnsureTrailingSeparator(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return path;
+
+            var last = path[path.Length - 1];
+            if (last == Path.DirectorySeparatorChar || last == Path.AltDirectorySeparatorChar)
+                return path;
+
+            return path + Path.DirectorySeparatorChar;
         }
 
         [Description("Capture a screenshot of the Game View (what the main camera sees). Returns a base64-encoded PNG image, " +
