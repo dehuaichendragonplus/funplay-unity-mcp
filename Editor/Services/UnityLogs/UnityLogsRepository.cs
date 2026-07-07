@@ -34,7 +34,7 @@ namespace Funplay.Editor.Services.UnityLogs
         }
 
         public string GetRecentLogs(string logType = "all", int count = 30, int sinceSeconds = 0,
-            string filterText = null, bool groupDuplicates = false)
+            string filterText = null, bool groupDuplicates = false, bool includeStackTrace = false)
         {
             count = Mathf.Clamp(count, 1, 200);
             var filter = (logType ?? "all").ToLowerInvariant();
@@ -64,7 +64,8 @@ namespace Funplay.Editor.Services.UnityLogs
                 if (!MatchesTextFilter(firstLine, filterText))
                     continue;
 
-                lines.Add($"[{ToLabel(entry.Type)}] {TruncateLine(firstLine)}");
+                var stackSuffix = includeStackTrace ? FormatStackTrace(entry.StackTrace) : string.Empty;
+                lines.Add($"[{ToLabel(entry.Type)}] {TruncateLine(firstLine)}{stackSuffix}");
             }
 
             if (lines.Count == 0)
@@ -102,6 +103,32 @@ namespace Funplay.Editor.Services.UnityLogs
             if (string.IsNullOrEmpty(line) || line.Length <= MaxEmittedLineLength)
                 return line;
             return line.Substring(0, MaxEmittedLineLength) + $"... (+{line.Length - MaxEmittedLineLength} chars)";
+        }
+
+        // Stack traces get their own, larger cap: MaxEmittedLineLength (300) is sized for a
+        // single message line, but a stack trace is legitimately many lines and callers ask
+        // for it specifically to see those frames -- still capped so one giant trace can't
+        // blow up the response.
+        private const int MaxStackTraceLength = 2000;
+
+        internal static string FormatStackTrace(string stackTrace)
+        {
+            if (string.IsNullOrWhiteSpace(stackTrace))
+                return string.Empty;
+
+            var trimmed = stackTrace.TrimEnd();
+            var truncated = trimmed.Length > MaxStackTraceLength
+                ? trimmed.Substring(0, MaxStackTraceLength) + $"... (+{trimmed.Length - MaxStackTraceLength} chars)"
+                : trimmed;
+
+            var sb = new StringBuilder();
+            foreach (var line in truncated.Split('\n'))
+            {
+                sb.Append('\n');
+                sb.Append("    ");
+                sb.Append(line);
+            }
+            return sb.ToString();
         }
 
         // Appends lines to the builder; with grouping, identical lines collapse to one

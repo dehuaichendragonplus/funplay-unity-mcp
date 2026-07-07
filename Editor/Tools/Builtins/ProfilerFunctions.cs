@@ -234,10 +234,11 @@ namespace Funplay.Editor.Tools.Builtins
         }
 
         [Description("Get the runtime memory footprint of a specific asset (by project path) or scene GameObject " +
-                     "(by hierarchy path, e.g. 'Canvas/Panel/Icon'). Useful for diagnosing texture/atlas memory leaks.")]
+                     "(by name, hierarchy path e.g. 'Canvas/Panel/Icon', or instance ID -- inactive objects included). " +
+                     "Useful for diagnosing texture/atlas memory leaks.")]
         [ReadOnlyTool]
         public static string GetObjectMemory(
-            [ToolParam("Asset path (e.g. 'Assets/Art/atlas.png') or scene GameObject hierarchy path")] string target)
+            [ToolParam("Asset path (e.g. 'Assets/Art/atlas.png'), or scene GameObject name/hierarchy path/instance ID")] string target)
         {
             try
             {
@@ -254,9 +255,9 @@ namespace Funplay.Editor.Tools.Builtins
                 }
                 else
                 {
-                    var go = GameObject.Find(target);
+                    var go = ObjectsHelper.FindTarget(target);
                     if (go == null)
-                        return $"No active GameObject found at hierarchy path: {target}";
+                        return $"No GameObject found for target: {target}";
                     obj = go;
                 }
 

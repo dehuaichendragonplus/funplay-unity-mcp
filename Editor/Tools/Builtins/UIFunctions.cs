@@ -55,7 +55,7 @@ namespace Funplay.Editor.Tools.Builtins
         public static string CreateButton(
             [ToolParam("Name for the button")] string name,
             [ToolParam("Button label text")] string text,
-            [ToolParam("Parent Canvas or UI element name", Required = false)] string parent_name = "Canvas",
+            [ToolParam("Parent Canvas/UI element name, hierarchy path, or instance ID (finds inactive too)", Required = false)] string parent_name = "Canvas",
             [ToolParam("Anchored position as 'x,y'", Required = false)] string position = "0,0",
             [ToolParam("Size as 'width,height'", Required = false)] string size = "160,40",
             [ToolParam("Anchor preset: 'top-left','top-center','top-right','middle-left','center','middle-right','bottom-left','bottom-center','bottom-right','stretch-horizontal','stretch-vertical','stretch-full'", Required = false)] string anchor = null,
@@ -102,7 +102,7 @@ namespace Funplay.Editor.Tools.Builtins
         public static string CreateText(
             [ToolParam("Name for the text element")] string name,
             [ToolParam("Text content")] string text,
-            [ToolParam("Parent Canvas or UI element name", Required = false)] string parent_name = "Canvas",
+            [ToolParam("Parent Canvas/UI element name, hierarchy path, or instance ID (finds inactive too)", Required = false)] string parent_name = "Canvas",
             [ToolParam("Font size", Required = false)] string font_size = "20",
             [ToolParam("Anchored position as 'x,y'", Required = false)] string position = "0,0",
             [ToolParam("Size as 'width,height'", Required = false)] string size = "300,60",
@@ -137,7 +137,7 @@ namespace Funplay.Editor.Tools.Builtins
         [SceneEditingTool]
         public static string CreateImage(
             [ToolParam("Name for the image element")] string name,
-            [ToolParam("Parent Canvas or UI element name", Required = false)] string parent_name = "Canvas",
+            [ToolParam("Parent Canvas/UI element name, hierarchy path, or instance ID (finds inactive too)", Required = false)] string parent_name = "Canvas",
             [ToolParam("Color as 'r,g,b,a' or hex", Required = false)] string color = "1,1,1,1",
             [ToolParam("Size as 'width,height'", Required = false)] string size = "100,100",
             [ToolParam("Anchored position as 'x,y'", Required = false)] string position = "0,0",
@@ -251,22 +251,7 @@ namespace Funplay.Editor.Tools.Builtins
 
         private static Transform FindParent(string name)
         {
-            var go = GameObject.Find(name);
-            if (go != null)
-                return go.transform;
-
-            foreach (var candidate in Resources.FindObjectsOfTypeAll<GameObject>())
-            {
-                if (!candidate.scene.IsValid())
-                    continue;
-
-                if (candidate.hideFlags == HideFlags.NotEditable || candidate.hideFlags == HideFlags.HideAndDontSave)
-                    continue;
-
-                if (candidate.name == name)
-                    return candidate.transform;
-            }
-
+            var go = ObjectsHelper.FindTarget(name);
             return go?.transform;
         }
 

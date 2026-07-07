@@ -47,10 +47,10 @@ namespace Funplay.Editor.Tools.Builtins
         [Description("Assign an Animator Controller to a GameObject")]
         [SceneEditingTool]
         public static string AssignAnimator(
-            [ToolParam("Name of the GameObject")] string game_object_name,
+            [ToolParam("GameObject name, hierarchy path, or instance ID. Finds inactive objects too.")] string game_object_name,
             [ToolParam("Path to the Animator Controller asset")] string controller_path)
         {
-            var go = GameObject.Find(game_object_name);
+            var go = ObjectsHelper.FindTarget(game_object_name);
             if (go == null)
                 return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { game_object_name });
 
@@ -62,9 +62,9 @@ namespace Funplay.Editor.Tools.Builtins
             if (animator == null)
                 animator = Undo.AddComponent<Animator>(go);
 
-            Undo.RecordObject(animator, $"Assign animator to {game_object_name}");
+            Undo.RecordObject(animator, $"Assign animator to {go.name}");
             animator.runtimeAnimatorController = controller;
-            return $"Assigned Animator Controller to '{game_object_name}'";
+            return $"Assigned Animator Controller to '{go.name}'";
         }
 
         [Description("Get an Animator's current runtime state: active state name (resolved from the controller when possible), " +

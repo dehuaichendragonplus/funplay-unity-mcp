@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+- `get_console_logs` gained an `include_stack_trace` option: each entry's stack trace (already captured separately, or split out of the console's combined message+trace string) is appended, indented, below the message line, with its own 2000-character truncation cap independent of the message's 300-character cap. Off by default.
+
+### Fixed
+- Several built-in tools (`assign_animator`, `assign_material`, camera tools, `create_prefab`/`unpack_prefab`, `get_object_memory`, `capture_multiview`'s `target_name`, `select_object`/`focus_on_object`, `get_hierarchy`'s `root_name`, and UI-creation tools' `parent_name`) resolved their target GameObject with a bare `GameObject.Find` call, which cannot find inactive objects and has no way to disambiguate duplicate names. They now resolve through the shared `ObjectsHelper.FindTarget` (name, hierarchy path, or instance ID; inactive objects and additively-loaded scenes included), matching what `get_hierarchy` and the UI-creation tools already had to hand-roll workarounds for. Two of those hand-rolled workarounds (a recursive inactive-object search in `HierarchyFunctions` and a `Resources.FindObjectsOfTypeAll` fallback loop in `UIFunctions.FindParent`) are removed as dead code now that `ObjectsHelper` covers the same ground.
+
 ## [0.5.0] - 2026-07-07
 
 ### Added
