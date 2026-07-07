@@ -22,6 +22,8 @@ namespace Funplay.Editor.MCP.Server
 
         private const string ManifestDirectory = ".funplay/skills";
         private const string ManifestFileName = "manifest.json";
+        private const string ProjectSkillVersionsMarkerPrefix = "<!-- Funplay Unity MCP project skill versions: ";
+        private const string SkillVersionMarkerPrefix = "<!-- Funplay Unity MCP skill version: ";
 
         private static readonly string[] SupportedPlatforms = { "codex", "claude", "cursor" };
 
@@ -29,6 +31,7 @@ namespace Funplay.Editor.MCP.Server
         {
             new SkillDefinition(
                 "unity-mcp-workflow",
+                "1.0.0",
                 "Unity MCP Workflow",
                 "Efficient workflow for using Unity MCP to edit, import, compile, inspect, and test Unity projects.",
                 true,
@@ -37,7 +40,7 @@ namespace Funplay.Editor.MCP.Server
                 {
                     "Use Unity MCP as the source of truth for Editor state, scene hierarchy, prefab references, runtime objects, compilation status, and Play Mode behavior.",
                     "Locate the real Unity project root and active scene before editing.",
-                    "Inspect hierarchy, prefab paths, selected objects, and relevant component references through MCP before changing user-named objects.",
+                    "Inspect hierarchy, prefab paths, selected objects, and relevant component references through MCP before changing user-named objects. Treat user-provided object names as hints, not paths.",
                     "Tool returns are structured JSON: `{success, message, data}` for success and `{success: false, code, error, data}` for errors. Parse `data` and check `code` (UPPERCASE_SNAKE_CASE) for branching — do not pattern-match free-form text.",
                     "Prefer `instanceId` returned by tools for follow-up calls. Pass it back via the `find_method=by_id` (or auto-detect when the value parses as an integer). This is more reliable than re-resolving by `name` when scenes contain duplicates.",
                     "Use the `find_method` parameter on GameObject/Component tools to choose how a target is resolved: `by_id`, `by_name`, `by_path`, `by_tag`, `by_layer`, `by_component`, or `by_id_or_name_or_path`. Default auto-detect picks `by_id` for integers, `by_path` for slashed strings, otherwise `by_name`.",
@@ -48,16 +51,21 @@ namespace Funplay.Editor.MCP.Server
                     "When Tool Exposure uses the default `core` profile, rely on the focused workflow tools: `execute_code`, recompilation, Play Mode control, hierarchy, console logs, screenshots, input simulation, and performance inspection.",
                     "When Tool Exposure uses the default `full` profile, all registered MCP tools are available. Prefer specific tools for simple scene, asset, GameObject, component, prefab, camera, UI, package, animation, file, or visual-feedback operations.",
                     "If Tool Exposure has been customized and a named tool is unavailable, adapt to the exposed tool list and report which expected tool is missing.",
+                    "Never edit Unity serialized files (`.unity`, `.prefab`, `.asset`) with shell text tools or patches. Use Unity MCP or Editor APIs for scenes, prefabs, and ScriptableObject assets; shell tools may only inspect or locate these files.",
                     "Choose the correct edit surface: source files with normal repo tools, scene objects through Unity APIs and saved scenes, prefab assets through `PrefabUtility.LoadPrefabContents` and `SaveAsPrefabAsset`.",
                     "For `execute_code`, prefer the IFunplayCommand template over the legacy `static string Run()`: include `using Funplay.Editor.Tools.Scripting;`, implement `IFunplayCommand`, and use `ctx.RegisterObjectCreation`, `ctx.RegisterObjectModification`, `ctx.DestroyObject` so created/modified objects participate in editor Undo automatically. Use `ctx.Log` / `ctx.LogWarning` / `ctx.LogError` for traceable output that comes back in the response (without polluting the Unity console).",
-                    "Batch related Unity-side changes in one guarded `execute_code` snippet, with explicit missing-object reports and concise before/after values.",
+                    "Batch related Unity-side changes in one guarded `execute_code` snippet. Null-guard every lookup, return explicit missing path/object/component messages, and include concise before/after values.",
                     "`execute_code` now refreshes the asset database and waits for compilation to finish before compiling the snippet, so external file edits are picked up automatically. For other tools that depend on the latest assemblies (e.g. `get_compilation_errors`), still call `request_recompile` after external file edits.",
+                    "After code or resource edits, exit Play Mode if needed, call `request_recompile`, call `wait_for_compilation`, then read compilation errors or console errors before claiming success.",
                     "Call `wait_for_compilation` before Play Mode, screenshots, or conclusions when a previous edit has not yet been confirmed.",
                     "After `enter_play_mode`, the MCP HTTP server briefly drops while Unity reloads the domain. Before the next tool call, poll a cheap tool such as `tools/list` or `get_reload_recovery_status` until the server responds again — do not assume the connection is immediately ready.",
                     "`request_recompile` is rejected while Unity is in Play Mode — Unity does not process script compilation or domain reloads while playing. Call `exit_play_mode` first, then retry `request_recompile`.",
+                    "If a request is interrupted by script recompilation or domain reload, treat the result as unknown until `get_reload_recovery_status`, compilation checks, and MCP readback confirm the final state.",
                     "Read back exact values from Unity after changes, not only success messages.",
                     "Test actual behavior in Unity through hierarchy, console logs, Play Mode, UI interactions, screenshots, or targeted `execute_code` checks.",
                     "When Unity readback and text files disagree for serialized scene or prefab state, trust Unity readback and investigate the asset path.",
+                    "Do not run self-healing fallback loops. If a reference, path, tool, or package is missing, report one clear error and stop or skip that item instead of guessing new paths or silently creating replacements.",
+                    "For `UnityEngine.Object` references, never use `??=` for lazy rebinding. Use explicit `if (field == null) field = Resolve();` checks so Unity fake-null references are handled correctly.",
                     "If Play Mode is entered, exit Play Mode before finishing unless the user explicitly wants it left running."
                 }),
         };
@@ -103,6 +111,7 @@ namespace Funplay.Editor.MCP.Server
         internal static void SaveManifest(string projectRoot, ProjectSkillsManifest manifest)
         {
             var normalized = NormalizeManifest(manifest);
+            normalized.skillVersions = BuildCurrentSkillVersionEntries(normalized);
             var manifestPath = GetManifestPath(projectRoot);
             var directory = Path.GetDirectoryName(manifestPath);
             if (!string.IsNullOrEmpty(directory))
@@ -178,6 +187,29 @@ namespace Funplay.Editor.MCP.Server
             return SkillCatalog.Where(skill => installedIds.Contains(skill.Id)).ToArray();
         }
 
+        internal static ProjectSkillsUpgradeStatus GetUpgradeStatus(
+            string projectRoot,
+            ProjectSkillsManifest manifest,
+            string platformId)
+        {
+            var normalized = NormalizeManifest(manifest);
+            if (string.IsNullOrEmpty(projectRoot) ||
+                string.IsNullOrEmpty(platformId) ||
+                !normalized.platforms.Contains(platformId, StringComparer.OrdinalIgnoreCase))
+            {
+                return new ProjectSkillsUpgradeStatus(Array.Empty<SkillFileVersionStatus>());
+            }
+
+            var expectedFiles = GetExpectedVersionedFilesForPlatform(projectRoot, normalized, platformId);
+            var entries = new List<SkillFileVersionStatus>(expectedFiles.Count);
+            foreach (var expected in expectedFiles)
+            {
+                entries.Add(InspectVersionedFile(expected));
+            }
+
+            return new ProjectSkillsUpgradeStatus(entries);
+        }
+
         internal static bool IsManagedFile(string path)
         {
             try
@@ -207,6 +239,17 @@ namespace Funplay.Editor.MCP.Server
                 var path = GetClaudeInstructionsPath(projectRoot);
                 if (File.Exists(path) && !IsManagedFile(path))
                     conflicts.Add(path);
+            }
+
+            if (platforms.Contains("cursor"))
+            {
+                var rulesRoot = GetCursorRulesPath(projectRoot);
+                foreach (var skill in SkillCatalog)
+                {
+                    var path = Path.Combine(rulesRoot, $"funplay-{skill.Id}.mdc");
+                    if (File.Exists(path) && !IsManagedFile(path))
+                        conflicts.Add(path);
+                }
             }
 
             return conflicts.ToArray();
@@ -345,12 +388,205 @@ namespace Funplay.Editor.MCP.Server
                 File.Delete(path);
         }
 
+        private static List<SkillVersionEntry> BuildCurrentSkillVersionEntries(ProjectSkillsManifest manifest)
+        {
+            return GetInstalledSkills(manifest)
+                .OrderBy(skill => skill.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(skill => new SkillVersionEntry { id = skill.Id, version = skill.Version })
+                .ToList();
+        }
+
+        private static string BuildSkillVersionSignature(SkillDefinition skill)
+        {
+            return $"{skill.Id}@{skill.Version}";
+        }
+
+        private static string BuildSkillVersionMarker(SkillDefinition skill)
+        {
+            return $"{SkillVersionMarkerPrefix}{BuildSkillVersionSignature(skill)} -->";
+        }
+
+        private static string BuildProjectSkillVersionsSummary(IEnumerable<SkillDefinition> skills)
+        {
+            return string.Join(
+                ", ",
+                (skills ?? Array.Empty<SkillDefinition>())
+                    .OrderBy(skill => skill.Id, StringComparer.OrdinalIgnoreCase)
+                    .Select(BuildSkillVersionSignature));
+        }
+
+        private static string BuildProjectSkillVersionsMarker(IEnumerable<SkillDefinition> skills)
+        {
+            return $"{ProjectSkillVersionsMarkerPrefix}{BuildProjectSkillVersionsSummary(skills)} -->";
+        }
+
+        private static List<ExpectedSkillVersionFile> GetExpectedVersionedFilesForPlatform(
+            string projectRoot,
+            ProjectSkillsManifest manifest,
+            string platformId)
+        {
+            var skills = GetInstalledSkills(manifest).ToArray();
+            var result = new List<ExpectedSkillVersionFile>();
+
+            switch (platformId?.Trim().ToLowerInvariant())
+            {
+                case "codex":
+                    AddProjectVersionFile(result, GetCodexAgentsPath(projectRoot), skills);
+                    foreach (var skill in skills)
+                    {
+                        result.Add(new ExpectedSkillVersionFile(
+                            Path.Combine(GetCodexSkillsRoot(projectRoot), $"funplay-{skill.Id}", "SKILL.md"),
+                            skill.Id,
+                            skill.Version,
+                            BuildSkillVersionMarker(skill)));
+                    }
+                    break;
+                case "claude":
+                    AddProjectVersionFile(result, GetClaudeInstructionsPath(projectRoot), skills);
+                    foreach (var skill in skills)
+                    {
+                        result.Add(new ExpectedSkillVersionFile(
+                            Path.Combine(GetClaudeSkillsRoot(projectRoot), $"funplay-{skill.Id}", "SKILL.md"),
+                            skill.Id,
+                            skill.Version,
+                            BuildSkillVersionMarker(skill)));
+                    }
+                    break;
+                case "cursor":
+                    foreach (var skill in skills)
+                    {
+                        result.Add(new ExpectedSkillVersionFile(
+                            Path.Combine(GetCursorRulesPath(projectRoot), $"funplay-{skill.Id}.mdc"),
+                            skill.Id,
+                            skill.Version,
+                            BuildSkillVersionMarker(skill)));
+                    }
+                    break;
+            }
+
+            return result;
+        }
+
+        private static void AddProjectVersionFile(
+            List<ExpectedSkillVersionFile> result,
+            string path,
+            IReadOnlyList<SkillDefinition> skills)
+        {
+            result.Add(new ExpectedSkillVersionFile(
+                path,
+                "project",
+                BuildProjectSkillVersionsSummary(skills),
+                BuildProjectSkillVersionsMarker(skills)));
+        }
+
+        private static SkillFileVersionStatus InspectVersionedFile(ExpectedSkillVersionFile expected)
+        {
+            if (!File.Exists(expected.Path))
+            {
+                return new SkillFileVersionStatus(
+                    expected.Path,
+                    expected.SkillId,
+                    expected.ExpectedVersion,
+                    "missing",
+                    true,
+                    false,
+                    true);
+            }
+
+            string content;
+            try
+            {
+                content = File.ReadAllText(expected.Path);
+            }
+            catch
+            {
+                return new SkillFileVersionStatus(
+                    expected.Path,
+                    expected.SkillId,
+                    expected.ExpectedVersion,
+                    "unreadable",
+                    false,
+                    true,
+                    true);
+            }
+
+            var managed = content.Contains(ManagedMarker, StringComparison.Ordinal);
+            if (!managed)
+            {
+                return new SkillFileVersionStatus(
+                    expected.Path,
+                    expected.SkillId,
+                    expected.ExpectedVersion,
+                    "unmanaged",
+                    false,
+                    true,
+                    true);
+            }
+
+            if (content.Contains(expected.ExpectedMarker, StringComparison.Ordinal))
+            {
+                return new SkillFileVersionStatus(
+                    expected.Path,
+                    expected.SkillId,
+                    expected.ExpectedVersion,
+                    expected.ExpectedVersion,
+                    false,
+                    false,
+                    false);
+            }
+
+            var installedVersion = expected.SkillId == "project"
+                ? ExtractMarkerValue(content, ProjectSkillVersionsMarkerPrefix)
+                : ExtractSkillVersion(content, expected.SkillId);
+            if (string.IsNullOrEmpty(installedVersion))
+                installedVersion = "unknown";
+
+            return new SkillFileVersionStatus(
+                expected.Path,
+                expected.SkillId,
+                expected.ExpectedVersion,
+                installedVersion,
+                false,
+                false,
+                true);
+        }
+
+        private static string ExtractSkillVersion(string content, string skillId)
+        {
+            var markerValue = ExtractMarkerValue(content, SkillVersionMarkerPrefix);
+            if (string.IsNullOrEmpty(markerValue))
+                return null;
+
+            var prefix = skillId + "@";
+            return markerValue.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                ? markerValue.Substring(prefix.Length)
+                : markerValue;
+        }
+
+        private static string ExtractMarkerValue(string content, string markerPrefix)
+        {
+            if (string.IsNullOrEmpty(content) || string.IsNullOrEmpty(markerPrefix))
+                return null;
+
+            var start = content.IndexOf(markerPrefix, StringComparison.Ordinal);
+            if (start < 0)
+                return null;
+
+            start += markerPrefix.Length;
+            var end = content.IndexOf(" -->", start, StringComparison.Ordinal);
+            if (end < 0)
+                return null;
+
+            return content.Substring(start, end - start).Trim();
+        }
+
         private static string BuildCodexAgentsContent(string projectRoot, ProjectSkillsManifest manifest)
         {
             var installed = GetInstalledSkills(manifest);
             return
 $@"# AGENTS.md
 {ManagedMarker}
+{BuildProjectSkillVersionsMarker(installed)}
 
 # Funplay Unity MCP Project Guidance
 
@@ -358,22 +594,27 @@ This file is managed by Funplay MCP for Unity.
 
 ## Installed project skills
 
-{string.Join("\n", installed.Select(skill => $"- `funplay-{skill.Id}` - {skill.Description}"))}
+{string.Join("\n", installed.Select(skill => $"- `funplay-{skill.Id}` v{skill.Version} - {skill.Description}"))}
 
 ## Codex workflow rules
 
 - Prefer project-local Funplay skills under `.codex/skills/`.
 - Use `execute_code` as the primary Unity automation tool. For new snippets, include `using Funplay.Editor.Tools.Scripting;`, implement `IFunplayCommand`, and use `ctx.RegisterObjectCreation` / `RegisterObjectModification` / `DestroyObject` so changes participate in Undo automatically.
+- Confirm the Unity project root, active scene, and real object/prefab/asset path before edits. Treat user-provided object names as hints, not paths.
 - Inspect Unity objects through MCP before changing user-named scene or prefab targets. Carry the returned `instanceId` into follow-up calls (`find_method=by_id`) instead of re-resolving by name.
 - Tool returns are structured JSON (`{{success, message, data}}` / `{{success: false, code, error, data}}`). Branch on `code`, not free-form text.
 - Set component fields with `set_component_property(ies)` — it picks up `[SerializeField] private` fields and accepts Object references as `{{""fileID"": <instanceId>}}` or `{{""assetPath"": ""Assets/...""}}`.
 - Read editor state through dedicated tools (`get_selection`, `get_prefab_stage`, `get_tags`, `get_layers`, `get_build_settings`); use `execute_menu_item` before falling back to ad-hoc `execute_code`.
+- Never edit `.unity`, `.prefab`, or `.asset` files with shell text tools or patches; use Unity MCP / Editor APIs for scenes, prefabs, and ScriptableObject assets.
 - Save only the scene or prefab assets intentionally modified, then read back exact values.
 - With default `core` exposure, use the focused workflow tools. With default `full` exposure, prefer specific MCP tools for simple editor operations.
 - `execute_code` refreshes the asset database and waits for compilation before running. For other tools that depend on freshly compiled code, still call `request_recompile` after external script edits.
+- In `execute_code`, null-guard every lookup and return explicit missing path/object/component messages; do not run self-healing fallback loops.
+- For Unity object references, do not use `??=` for lazy rebinding; use explicit `if (field == null) field = Resolve();`.
+- After code or resource edits, exit Play Mode if needed, call `request_recompile`, `wait_for_compilation`, then read compilation or console errors.
 - `request_recompile` is rejected while Unity is in Play Mode. Call `exit_play_mode` first, then retry.
 - After `enter_play_mode`, the HTTP server briefly drops while Unity reloads the domain. Poll `tools/list` or `get_reload_recovery_status` until it responds again before issuing the next tool call.
-- If recompilation triggers a domain reload, call `get_reload_recovery_status`.
+- If recompilation triggers a domain reload or interrupts a request, treat the result as unknown until `get_reload_recovery_status`, compilation checks, and MCP readback confirm it.
 - Avoid changing `Library/`, `Temp/`, `Logs/`, or `obj/`.
 
 ## Project
@@ -393,6 +634,7 @@ This file is managed by Funplay MCP for Unity.
             return
 $@"# CLAUDE.md
 {ManagedMarker}
+{BuildProjectSkillVersionsMarker(installed)}
 
 # Funplay Unity MCP Project Guidance
 
@@ -400,22 +642,27 @@ This file is managed by Funplay MCP for Unity for Claude Code.
 
 ## Installed skills
 
-{string.Join("\n", installed.Select(skill => $"- `{skill.Id}` - {skill.Description}"))}
+{string.Join("\n", installed.Select(skill => $"- `{skill.Id}` v{skill.Version} - {skill.Description}"))}
 
 ## Preferred workflow
 
 - Use Funplay MCP tools for Unity editor state and automation.
 - Use `execute_code` for non-trivial Unity orchestration. For new snippets, include `using Funplay.Editor.Tools.Scripting;`, implement `IFunplayCommand`, and use `ctx.RegisterObjectCreation` / `RegisterObjectModification` / `DestroyObject` so changes participate in Undo and `ctx.Log` for traceable output.
+- Confirm the Unity project root, active scene, and real object/prefab/asset path before edits. Treat user-provided object names as hints, not paths.
 - Inspect Unity objects through MCP before changing user-named scene or prefab targets. Carry the returned `instanceId` into follow-up calls (`find_method=by_id`) instead of re-resolving by name.
 - Tool returns are structured JSON (`{{success, message, data}}` / `{{success: false, code, error, data}}`). Branch on `code`, not free-form text.
 - Set component fields with `set_component_property(ies)` — it picks up `[SerializeField] private` fields and accepts Object references as `{{""fileID"": <instanceId>}}` or `{{""assetPath"": ""Assets/...""}}`.
 - Read editor state through `get_selection`, `get_prefab_stage`, `get_tags`, `get_layers`, `get_build_settings`; try `execute_menu_item` before writing ad-hoc `execute_code`.
+- Never edit `.unity`, `.prefab`, or `.asset` files with shell text tools or patches; use Unity MCP / Editor APIs for scenes, prefabs, and ScriptableObject assets.
 - Save only the scene or prefab assets intentionally modified, then read back exact values.
 - With default `core` exposure, use the focused workflow tools. With default `full` exposure, prefer specific MCP tools for simple editor operations.
 - `execute_code` refreshes assets and waits for compilation before running. For other tools that depend on freshly compiled code, still call `request_recompile` after external script edits.
+- In `execute_code`, null-guard every lookup and return explicit missing path/object/component messages; do not run self-healing fallback loops.
+- For Unity object references, do not use `??=` for lazy rebinding; use explicit `if (field == null) field = Resolve();`.
+- After code or resource edits, exit Play Mode if needed, call `request_recompile`, `wait_for_compilation`, then read compilation or console errors.
 - `request_recompile` is rejected while Unity is in Play Mode. Call `exit_play_mode` first, then retry.
 - After `enter_play_mode`, the HTTP server briefly drops while Unity reloads the domain. Poll `tools/list` or `get_reload_recovery_status` until it responds again before issuing the next tool call.
-- If domain reload interrupts a request, follow with `get_reload_recovery_status`.
+- If domain reload interrupts a request, treat the result as unknown until `get_reload_recovery_status`, compilation checks, and MCP readback confirm it.
 - Additional installed skills are available under `.claude/skills/`.
 
 ## Project
@@ -432,8 +679,10 @@ This file is managed by Funplay MCP for Unity for Claude Code.
 $@"---
 description: {skill.Description}
 alwaysApply: {alwaysApply}
+version: {skill.Version}
 ---
 {ManagedMarker}
+{BuildSkillVersionMarker(skill)}
 
 # {skill.Title}
 
@@ -446,6 +695,7 @@ alwaysApply: {alwaysApply}
 ## Metadata
 
 - Skill id: `{skill.Id}`
+- Skill version: `{skill.Version}`
 - Built-in: `{skill.IsBuiltIn}`
 - Source: `https://github.com/FunplayAI/funplay-unity-mcp`
 ";
@@ -460,9 +710,11 @@ alwaysApply: {alwaysApply}
 $@"---
 name: funplay-{skill.Id}
 description: {skill.Description}
+version: {skill.Version}
 platform: {platform.ToString().ToLowerInvariant()}
 ---
 {ManagedMarker}
+{BuildSkillVersionMarker(skill)}
 
 # {skill.Title}
 
@@ -475,6 +727,7 @@ platform: {platform.ToString().ToLowerInvariant()}
 ## Metadata
 
 - Original skill id: `{skill.Id}`
+- Skill version: `{skill.Version}`
 - Source repository: `https://github.com/FunplayAI/funplay-unity-mcp`
 ";
         }
@@ -485,9 +738,11 @@ platform: {platform.ToString().ToLowerInvariant()}
 $@"---
 name: funplay-{skill.Id}
 description: {skill.Description}
+version: {skill.Version}
 platform: {platform.ToString().ToLowerInvariant()}
 ---
 {ManagedMarker}
+{BuildSkillVersionMarker(skill)}
 
 # {skill.Title}
 
@@ -502,22 +757,36 @@ platform: {platform.ToString().ToLowerInvariant()}
    - Confirm the Unity project root and active scene.
    - Check that Unity MCP is reachable before assuming Editor state.
    - Inspect hierarchy, prefab paths, selected objects, and relevant component references through MCP.
-   - If the user names an object, verify the real Unity object path before editing.
+   - If the user names an object, treat the name as a hint and verify the real Unity object path before editing.
 2. Choose the edit surface.
    - Edit source files with normal repo tools, then trigger Unity recompilation.
    - Edit scene objects through Unity APIs, mark the scene dirty, and save the scene.
    - Edit prefab assets with `PrefabUtility.LoadPrefabContents`, `PrefabUtility.SaveAsPrefabAsset`, and `PrefabUtility.UnloadPrefabContents`.
+   - Edit ScriptableObject assets through `SerializedObject`, `EditorUtility.SetDirty`, and `AssetDatabase.SaveAssetIfDirty` / `SaveAssets`.
+   - Never patch `.unity`, `.prefab`, or `.asset` YAML with shell text tools.
    - If the user is looking at an open scene instance, update the visible scene instance as well as the prefab asset when appropriate.
 3. Execute changes.
    - Prefer one well-guarded `execute_code` batch over many fragile UI clicks.
-   - Use null guards for every object lookup and return explicit missing-path messages.
+   - Use null guards for every object, component, asset, and path lookup.
+   - Return explicit missing-path/object/component messages that include the expected path and the scene or prefab searched.
    - Return concise before/after values from snippets.
    - Save only the assets or scenes intentionally modified.
+   - Do not run self-healing fallback loops; if a reference, path, package, or tool is missing, report it once and stop or skip that item.
 4. Validate.
    - Read back the changed objects through MCP.
-   - For file edits, call `request_recompile`, then `wait_for_compilation`, then inspect console or compilation errors.
+   - For code or resource edits, exit Play Mode if needed, call `request_recompile`, call `wait_for_compilation`, then inspect compilation errors and console errors.
    - For runtime behavior, enter Play Mode or inspect live objects when needed.
+   - If MCP is unreachable, do not claim scene, prefab, asset, or runtime verification.
    - Report exactly what was verified and what still requires device, store, network, or manual validation.
+
+## Unity Serialized Asset Safety
+
+- Do not use shell text tools, scripts, or patches to modify `.unity`, `.prefab`, or `.asset` files. These are Unity-owned serialized assets; changing them outside Unity can corrupt file IDs, prefab overrides, references, import state, or scene dirtiness.
+- Shell tools may inspect or locate serialized Unity assets, but scene, prefab, and ScriptableObject modifications must go through Unity MCP tools or Editor APIs.
+- For scenes, modify live objects through Unity APIs, mark only the touched scene dirty, and save that scene.
+- For prefabs, use Prefab Mode tools or `PrefabUtility.LoadPrefabContents` / `SaveAsPrefabAsset` / `UnloadPrefabContents`.
+- For ScriptableObjects or other `.asset` files, load the asset with `AssetDatabase`, modify serialized properties through `SerializedObject` when possible, mark that asset dirty, and save only that asset.
+- If Unity readback and raw file text disagree, trust Unity readback and investigate the asset path instead of hand-editing YAML.
 
 ## Tool Exposure
 
@@ -675,10 +944,10 @@ After external C# or asset file edits:
 1. If Unity is in Play Mode, call `exit_play_mode` first — `request_recompile` is rejected during play because Unity does not run script compilation or domain reloads while playing.
 2. Call `request_recompile`.
 3. Call `wait_for_compilation`.
-4. Read console or compilation errors before continuing.
-5. If a domain reload drops the request, call `get_reload_recovery_status` when available, re-scan the MCP endpoint if needed, then continue from `wait_for_compilation`.
+4. Read `get_compilation_errors` and `get_console_logs` errors before continuing.
+5. If a domain reload drops or interrupts the request, call `get_reload_recovery_status` when available, re-scan the MCP endpoint if needed, then continue from `wait_for_compilation`.
 
-Do not treat a disconnected request as a successful compile.
+Do not treat a disconnected, interrupted, or domain-reload-recovered request as a successful compile or edit. It only means the state is unknown until compilation checks and MCP readback confirm the final values.
 
 After `enter_play_mode`, the HTTP server is briefly unreachable while Unity reloads the domain. Before issuing the next tool call, poll a cheap endpoint such as `tools/list` (or `get_reload_recovery_status` if exposed) until you get a response — do not assume the connection survives the Play Mode transition.
 
@@ -716,6 +985,7 @@ For gameplay or network work, verify object identity, ownership, live instance e
 - If MCP is unreachable, say so and fall back only to safe filesystem inspection or code edits. Do not claim scene, prefab, or runtime verification without Unity readback.
 - If an object lookup fails, inspect hierarchy and prefab contents instead of inventing a path.
 - If multiple matching objects exist, print their paths and choose the one matching the user-visible UI or current scene.
+- If a reference, package, tool, or path is missing, return one clear error and stop or skip that item. Do not loop through guessed fallback paths, create replacement objects silently, or report success after a best-effort fallback.
 - If compile errors appear after a change, fix them before Play Mode validation.
 - When Unity and text files disagree for serialized scene or prefab state, trust Unity readback and inspect the asset path.
 ";
@@ -725,6 +995,7 @@ $@"
 ## Metadata
 
 - Original skill id: `{skill.Id}`
+- Skill version: `{skill.Version}`
 - Source repository: `https://github.com/FunplayAI/funplay-unity-mcp`
 ";
 
@@ -745,6 +1016,7 @@ $@"
             manifest ??= CreateDefaultManifest();
             manifest.platforms ??= new List<string>();
             manifest.optionalSkills ??= new List<string>();
+            manifest.skillVersions ??= new List<SkillVersionEntry>();
 
             manifest.platforms = manifest.platforms
                 .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -765,6 +1037,24 @@ $@"
                 .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            var installedIds = new HashSet<string>(
+                GetInstalledSkills(manifest).Select(skill => skill.Id),
+                StringComparer.OrdinalIgnoreCase);
+
+            manifest.skillVersions = manifest.skillVersions
+                .Where(entry => entry != null &&
+                                !string.IsNullOrWhiteSpace(entry.id) &&
+                                !string.IsNullOrWhiteSpace(entry.version) &&
+                                installedIds.Contains(entry.id))
+                .GroupBy(entry => entry.id.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(group =>
+                {
+                    var first = group.First();
+                    return new SkillVersionEntry { id = group.Key, version = first.version.Trim() };
+                })
+                .OrderBy(entry => entry.id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
             return manifest;
         }
 
@@ -780,13 +1070,22 @@ $@"
         {
             public List<string> platforms = new List<string>();
             public List<string> optionalSkills = new List<string>();
+            public List<SkillVersionEntry> skillVersions = new List<SkillVersionEntry>();
+        }
+
+        [Serializable]
+        internal sealed class SkillVersionEntry
+        {
+            public string id;
+            public string version;
         }
 
         internal sealed class SkillDefinition
         {
-            public SkillDefinition(string id, string title, string description, bool isBuiltIn, string whenToUse, IReadOnlyList<string> rules)
+            public SkillDefinition(string id, string version, string title, string description, bool isBuiltIn, string whenToUse, IReadOnlyList<string> rules)
             {
                 Id = id;
+                Version = version;
                 Title = title;
                 Description = description;
                 IsBuiltIn = isBuiltIn;
@@ -795,11 +1094,69 @@ $@"
             }
 
             public string Id { get; }
+            public string Version { get; }
             public string Title { get; }
             public string Description { get; }
             public bool IsBuiltIn { get; }
             public string WhenToUse { get; }
             public IReadOnlyList<string> Rules { get; }
+        }
+
+        private sealed class ExpectedSkillVersionFile
+        {
+            public ExpectedSkillVersionFile(string path, string skillId, string expectedVersion, string expectedMarker)
+            {
+                Path = path;
+                SkillId = skillId;
+                ExpectedVersion = expectedVersion;
+                ExpectedMarker = expectedMarker;
+            }
+
+            public string Path { get; }
+            public string SkillId { get; }
+            public string ExpectedVersion { get; }
+            public string ExpectedMarker { get; }
+        }
+
+        internal sealed class ProjectSkillsUpgradeStatus
+        {
+            public ProjectSkillsUpgradeStatus(IReadOnlyList<SkillFileVersionStatus> files)
+            {
+                Files = files ?? Array.Empty<SkillFileVersionStatus>();
+                HasUpdates = Files.Any(file => file.RequiresUpgrade);
+            }
+
+            public IReadOnlyList<SkillFileVersionStatus> Files { get; }
+            public bool HasUpdates { get; }
+        }
+
+        internal sealed class SkillFileVersionStatus
+        {
+            public SkillFileVersionStatus(
+                string path,
+                string skillId,
+                string expectedVersion,
+                string installedVersion,
+                bool missing,
+                bool unmanaged,
+                bool requiresUpgrade)
+            {
+                Path = path;
+                SkillId = skillId;
+                ExpectedVersion = expectedVersion;
+                InstalledVersion = installedVersion;
+                Missing = missing;
+                Unmanaged = unmanaged;
+                RequiresUpgrade = requiresUpgrade;
+            }
+
+            public string Path { get; }
+            public string SkillId { get; }
+            public string ExpectedVersion { get; }
+            public string InstalledVersion { get; }
+            public bool Missing { get; }
+            public bool Unmanaged { get; }
+            public bool RequiresUpgrade { get; }
         }
     }
 }

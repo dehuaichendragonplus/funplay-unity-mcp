@@ -26,6 +26,7 @@ namespace Funplay.Editor.MCP.Server
         private VisualElement _generatedFilesContainer;
         private Toggle _enableCurrentPlatformToggle;
         private PopupField<string> _platformDropdown;
+        private Button _upgradeButton;
         private string[] _platformTargets;
         private int _selectedTargetIndex;
 
@@ -151,7 +152,7 @@ namespace Funplay.Editor.MCP.Server
 
             foreach (var skill in ProjectSkillsManager.GetBuiltInSkills())
             {
-                builtInSection.Add(CreateSkillRow(skill.Title, skill.Description, "Required"));
+                builtInSection.Add(CreateSkillRow(skill.Title, skill.Description, $"v{skill.Version} Required"));
             }
             _mainContainer.Add(builtInSection);
 
@@ -167,7 +168,7 @@ namespace Funplay.Editor.MCP.Server
                 toggle.style.unityFontStyleAndWeight = FontStyle.Bold;
                 optionalSection.Add(toggle);
 
-                var description = CreateHint(skill.Description, new Color(0.58f, 0.58f, 0.58f));
+                var description = CreateHint($"v{skill.Version} - {skill.Description}", new Color(0.58f, 0.58f, 0.58f));
                 description.style.marginLeft = 18;
                 description.style.marginBottom = 6;
                 optionalSection.Add(description);
@@ -204,6 +205,20 @@ namespace Funplay.Editor.MCP.Server
             applyButton.style.backgroundColor = new Color(0.25f, 0.45f, 0.65f);
             applyButton.style.color = Color.white;
             actionRow.Add(applyButton);
+
+            _upgradeButton = new Button(() =>
+            {
+                UpgradeProjectSkills();
+                RefreshStatus();
+            });
+            _upgradeButton.text = "Upgrade Skills";
+            _upgradeButton.style.height = 26;
+            _upgradeButton.style.width = 110;
+            _upgradeButton.style.marginLeft = 6;
+            _upgradeButton.style.backgroundColor = new Color(0.55f, 0.42f, 0.18f);
+            _upgradeButton.style.color = Color.white;
+            _upgradeButton.SetEnabled(false);
+            actionRow.Add(_upgradeButton);
 
             var refreshButton = new Button(RefreshStatus);
             refreshButton.text = "Refresh";
@@ -252,11 +267,23 @@ namespace Funplay.Editor.MCP.Server
                                             manifest.platforms.Contains(currentPlatformId, StringComparer.OrdinalIgnoreCase);
             var manifestPath = ProjectSkillsManager.GetManifestPath(projectRoot);
             var manifestExists = File.Exists(manifestPath);
+            var upgradeStatus = currentPlatformConfigured
+                ? ProjectSkillsManager.GetUpgradeStatus(projectRoot, manifest, currentPlatformId)
+                : null;
 
             if (_enableCurrentPlatformToggle != null)
             {
                 _enableCurrentPlatformToggle.SetEnabled(currentPlatformSupported);
                 _enableCurrentPlatformToggle.SetValueWithoutNotify(currentPlatformConfigured);
+            }
+
+            if (_upgradeButton != null)
+            {
+                _upgradeButton.style.display = currentPlatformConfigured ? DisplayStyle.Flex : DisplayStyle.None;
+                _upgradeButton.SetEnabled(upgradeStatus != null && upgradeStatus.HasUpdates);
+                _upgradeButton.tooltip = upgradeStatus != null && upgradeStatus.HasUpdates
+                    ? "Regenerate Funplay-managed project skills with the versions bundled in this package."
+                    : "Installed Funplay-managed project skills are already up to date for the selected platform.";
             }
 
             if (!currentPlatformSupported)
@@ -271,8 +298,16 @@ namespace Funplay.Editor.MCP.Server
             }
             else
             {
-                _statusLabel.text = $"Status: Configured for {currentPlatformDisplayName} | Skills: {installedSkills.Count}";
-                _statusLabel.style.color = new Color(0.4f, 1f, 0.4f);
+                if (upgradeStatus != null && upgradeStatus.HasUpdates)
+                {
+                    _statusLabel.text = $"Status: Configured for {currentPlatformDisplayName} | Skills: {installedSkills.Count} | Updates available";
+                    _statusLabel.style.color = new Color(1f, 0.72f, 0.32f);
+                }
+                else
+                {
+                    _statusLabel.text = $"Status: Configured for {currentPlatformDisplayName} | Skills: {installedSkills.Count} | Up to date";
+                    _statusLabel.style.color = new Color(0.4f, 1f, 0.4f);
+                }
             }
 
             _manifestPathLabel.text = manifestExists
@@ -342,6 +377,76 @@ namespace Funplay.Editor.MCP.Server
             }
         }
 
+        private void UpgradeProjectSkills()
+        {
+            var projectRoot = GetProjectRootPath();
+            var currentPlatformId = GetCurrentSkillsPlatformId();
+
+            try
+            {
+                if (string.IsNullOrEmpty(currentPlatformId))
+                {
+                    EditorUtility.DisplayDialog(
+                        "Project Skills Upgrade",
+                        "Project skills are not supported for the currently selected platform yet.\n\nPlease select Codex, Claude Code, or Cursor.",
+                        "OK");
+                    return;
+                }
+
+                var manifest = ProjectSkillsManager.LoadManifest(projectRoot);
+                if (!manifest.platforms.Contains(currentPlatformId, StringComparer.OrdinalIgnoreCase))
+                {
+                    EditorUtility.DisplayDialog(
+                        "Project Skills Upgrade",
+                        "Skills are not configured for the currently selected platform yet.\n\nEnable skills and click Apply Skills first.",
+                        "OK");
+                    return;
+                }
+
+                var status = ProjectSkillsManager.GetUpgradeStatus(projectRoot, manifest, currentPlatformId);
+                if (!status.HasUpdates)
+                {
+                    EditorUtility.DisplayDialog(
+                        "Project Skills Upgrade",
+                        "Project skills are already up to date for the selected platform.",
+                        "OK");
+                    return;
+                }
+
+                var conflictPaths = ProjectSkillsManager.GetPlatformConflictPaths(projectRoot, manifest.platforms);
+                if (conflictPaths.Length > 0)
+                {
+                    var overwrite = EditorUtility.DisplayDialog(
+                        "Project Skills Upgrade",
+                        "Existing non-managed project instruction files were found:\n\n" +
+                        string.Join("\n", conflictPaths) +
+                        "\n\nOverwrite them with Funplay-managed files?",
+                        "Overwrite",
+                        "Cancel");
+
+                    if (!overwrite)
+                        return;
+                }
+
+                ProjectSkillsManager.ApplyConfiguration(projectRoot, manifest.platforms, manifest.optionalSkills);
+
+                EditorUtility.DisplayDialog(
+                    "Project Skills Upgrade",
+                    "Project skills upgraded successfully.\n\n" +
+                    $"Manifest:\n{ProjectSkillsManager.GetManifestPath(projectRoot)}",
+                    "OK");
+
+                BuildUI();
+            }
+            catch (Exception ex)
+            {
+                EditorUtility.DisplayDialog(
+                    "Project Skills Upgrade Error",
+                    $"Upgrade failed:\n{ex.Message}",
+                    "OK");
+            }
+        }
+
         private string GetCurrentSkillsPlatformId()
         {
             if (_platformTargets == null || _platformTargets.Length == 0)
@@ -396,6 +501,24 @@ namespace Funplay.Editor.MCP.Server
                 return;
             }
 
+            var upgradeStatus = ProjectSkillsManager.GetUpgradeStatus(projectRoot, manifest, currentPlatformId);
+            if (upgradeStatus.Files.Count > 0)
+            {
+                _generatedFilesContainer.Add(CreateHint($"Versioned files for {currentPlatformDisplayName}:", new Color(0.7f, 0.7f, 0.7f)));
+                foreach (var file in upgradeStatus.Files)
+                {
+                    var row = new Label(FormatVersionStatus(file));
+                    row.style.fontSize = 10;
+                    row.style.color = file.RequiresUpgrade
+                        ? new Color(1f, 0.72f, 0.32f)
+                        : new Color(0.55f, 0.85f, 0.55f);
+                    row.style.marginLeft = 8;
+                    row.style.marginBottom = 2;
+                    row.style.whiteSpace = WhiteSpace.Normal;
+                    _generatedFilesContainer.Add(row);
+                }
+            }
+
             var paths = ProjectSkillsManager.GetGeneratedPathsForPlatform(projectRoot, manifest, currentPlatformId);
             if (paths.Count == 0)
             {
@@ -403,7 +526,7 @@ namespace Funplay.Editor.MCP.Server
                 return;
             }
 
-            _generatedFilesContainer.Add(CreateHint($"Generated files for {currentPlatformDisplayName}:", new Color(0.7f, 0.7f, 0.7f)));
+            _generatedFilesContainer.Add(CreateHint($"Generated paths for {currentPlatformDisplayName}:", new Color(0.7f, 0.7f, 0.7f)));
             foreach (var path in paths)
             {
                 var exists = File.Exists(path) || Directory.Exists(path);
@@ -420,6 +543,23 @@ namespace Funplay.Editor.MCP.Server
         private static string GetProjectRootPath()
         {
             return Path.GetDirectoryName(Application.dataPath) ?? Application.dataPath;
+        }
+
+        private static string FormatVersionStatus(ProjectSkillsManager.SkillFileVersionStatus status)
+        {
+            if (status == null)
+                return "Unknown skill file status";
+
+            if (status.Missing)
+                return $"Missing  {status.Path}  (expected {status.ExpectedVersion})";
+
+            if (status.Unmanaged)
+                return $"Conflict  {status.Path}  (not Funplay-managed, expected {status.ExpectedVersion})";
+
+            if (status.RequiresUpgrade)
+                return $"Update  {status.Path}  ({status.InstalledVersion} -> {status.ExpectedVersion})";
+
+            return $"OK  {status.Path}  ({status.ExpectedVersion})";
         }
 
         private static VisualElement CreateSection()
