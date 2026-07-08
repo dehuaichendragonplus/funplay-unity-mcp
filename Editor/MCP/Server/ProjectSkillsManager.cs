@@ -451,9 +451,15 @@ namespace Funplay.Editor.MCP.Server
             var begin = content.IndexOf(ManagedMarker, StringComparison.Ordinal);
             var end = content.IndexOf(ManagedEndMarker, StringComparison.Ordinal);
 
+            // Only a COMPLETE begin..end block is safe to strip. Anything else -- a begin marker
+            // with no matching end (legacy whole-file marker, or a hand-edited/merged file), or no
+            // markers at all -- has an unknowable managed extent, so NEVER delete the whole file:
+            // that would destroy hand-authored content. (The old `end <= begin -> DeleteManagedFile`
+            // path did exactly that, since IsManagedFile is true whenever the begin marker exists.)
             if (begin < 0 || end <= begin)
             {
-                DeleteManagedFile(path);
+                if (begin >= 0)
+                    Debug.LogWarning($"[Funplay] '{path}' has a managed begin marker but no matching end marker; left untouched on disable to avoid deleting content of unknown extent. Delete it manually if it is a stale Funplay-only file.");
                 return;
             }
 
