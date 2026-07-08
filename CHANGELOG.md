@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- `SyncClaude`/`SyncCodex` now manage `CLAUDE.md`/`AGENTS.md` as a delimited begin/end block instead of overwriting the whole file, so Funplay guidance can be kept up to date across versions without ever clobbering hand-authored content. Funplay owns only the region between the managed begin marker and a new end marker (`<!-- /Funplay Unity MCP managed project skills -->`): an absent file is created (title + block), a complete block is replaced in place, and a file with no block gets the block appended below the user's existing content. A legacy single-marker file with no end marker is skipped with a warning (its managed extent is unknowable) rather than clobbered. Disabling a platform now strips just the block (deleting the file only if nothing but a bare title remains) instead of deleting the whole file. Version-status/`Upgrade Skills` detection is unchanged (it matches markers by content, independent of position, so it works whether the markers sit at the top of a fully-managed file or inside a block).
+
 ## [0.5.0] - 2026-07-07
 
 ### Added
