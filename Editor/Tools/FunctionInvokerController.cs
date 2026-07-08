@@ -194,10 +194,7 @@ namespace Funplay.Editor.Tools
             if (targetType == typeof(string))
                 return value;
 
-            if (string.IsNullOrEmpty(value))
-                return GetDefaultForType(targetType);
-
-            // Handle nullable
+            // Handle nullable: empty or "null" -> null; otherwise unwrap and parse the underlying.
             var underlying = Nullable.GetUnderlyingType(targetType);
             if (underlying != null)
             {
@@ -206,9 +203,10 @@ namespace Funplay.Editor.Tools
                 targetType = underlying;
             }
 
-            // NOTE: parse failures are intentionally NOT swallowed here. They propagate to
-            // BuildArguments, which rethrows them as a ToolArgumentException so the caller gets
-            // an INVALID_PARAM error instead of a silent default(T) / zero-vector wrong write.
+            // NOTE: parse failures -- INCLUDING an explicit empty string for a non-string type --
+            // are intentionally NOT swallowed here. They propagate to BuildArguments, which
+            // rethrows them as a ToolArgumentException so the caller gets an INVALID_PARAM error
+            // instead of a silent default(T) / zero-vector / false / zeroth-enum wrong write.
             if (targetType == typeof(int))
                 return int.Parse(value, CultureInfo.InvariantCulture);
             if (targetType == typeof(long))
@@ -218,9 +216,22 @@ namespace Funplay.Editor.Tools
             if (targetType == typeof(double))
                 return double.Parse(value, CultureInfo.InvariantCulture);
             if (targetType == typeof(bool))
-                return value == "true" || value == "1" || value.Equals("yes", StringComparison.OrdinalIgnoreCase);
+            {
+                if (value == "true" || value == "1" || value.Equals("yes", StringComparison.OrdinalIgnoreCase))
+                    return true;
+                if (value == "false" || value == "0" || value.Equals("no", StringComparison.OrdinalIgnoreCase))
+                    return false;
+                throw new FormatException($"'{value}' is not a boolean (expected true/false/1/0/yes/no)");
+            }
             if (targetType.IsEnum)
-                return Enum.Parse(targetType, value, ignoreCase: true);
+            {
+                // Enum.Parse accepts unmapped NUMERIC strings (e.g. "999" -> (T)999) without
+                // throwing, so validate the result is a defined member.
+                var parsed = Enum.Parse(targetType, value, ignoreCase: true);
+                if (!Enum.IsDefined(targetType, parsed))
+                    throw new FormatException($"'{value}' is not a defined {targetType.Name} value (one of [{string.Join(", ", Enum.GetNames(targetType))}])");
+                return parsed;
+            }
 
             // Vector3: "x,y,z" or "(x,y,z)"
             if (targetType == typeof(Vector3))

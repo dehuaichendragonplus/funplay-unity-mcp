@@ -29,10 +29,11 @@ namespace Funplay.Editor.Tools.Builtins
             "Optional output .png path under the Unity project root (absolute, or relative to the project root). " +
             "Default: " + ScreenshotDirRelative + "/<name>-<timestamp>.png. Only used when save_to_file=true.";
 
-        // A base64 payload above this size reliably drops the client-side MCP socket, so an
-        // oversized capture is transparently spilled to disk instead of emitting a payload that
-        // kills the connection. Callers that never want inline data can still pass save_to_file.
-        private const int MaxInlineScreenshotBytes = 768 * 1024;
+        // Threshold on RAW PNG bytes for spilling a capture to disk instead of inlining it.
+        // The transmitted payload is base64 (~1.33x the raw bytes) and a base64 payload around
+        // ~1MB reliably drops the client-side MCP socket, so this raw limit is set well below
+        // that: 512KB raw -> ~683KB base64, leaving headroom under the drop point.
+        private const int MaxInlineScreenshotBytes = 512 * 1024;
 
         /// <summary>
         /// Single exit point for all capture tools: base64 data URI by default, or
@@ -301,7 +302,7 @@ namespace Funplay.Editor.Tools.Builtins
                      "Returns base64 PNG images in data.captures[] together with the angle metadata of each.")]
         [ReadOnlyTool]
         public static object CaptureMultiview(
-            [ToolParam("Name (or hierarchy path) of the GameObject to focus on. Empty/null uses the active scene's bounds center.", Required = false)] string target_name = null,
+            [ToolParam("GameObject name, hierarchy path, or instance ID to focus on (finds inactive objects too). Empty/null uses the active scene's bounds center.", Required = false)] string target_name = null,
             [ToolParam("Capture mode: surround (6 axis views, default) or orbit (azimuth × elevations grid).", Required = false)] string mode = "surround",
             [ToolParam("Per-frame width in pixels. Default 512.", Required = false)] int width = 512,
             [ToolParam("Per-frame height in pixels. Default 512.", Required = false)] int height = 512,
@@ -367,13 +368,28 @@ namespace Funplay.Editor.Tools.Builtins
                 camera.farClipPlane = Mathf.Max(distance * 10f, 1000f);
                 camera.clearFlags = CameraClearFlags.Skybox;
 
-                var captures = new List<object>(angles.Count);
-                var frameIndex = 0;
+                // Capture all frames first, then decide inline-vs-file from the COMBINED size.
+                // The default (save_to_file=false) path previously concatenated every frame's
+                // base64 with no size check -- a 6-36 frame multiview easily exceeds the inline
+                // transport limit and drops the socket. Spill all frames to files when the total
+                // would be too large (mirrors FinishCapture's single-capture auto-fallback).
+                var frames = new List<(float az, float el, byte[] png)>(angles.Count);
                 foreach (var (azimuth, elevation) in angles)
                 {
                     PositionCameraOnSphere(camera, targetCenter, distance, azimuth, elevation);
-                    var pngBytes = CaptureFromCameraPngBytes(camera, width, height);
-                    if (save_to_file)
+                    frames.Add((azimuth, elevation, CaptureFromCameraPngBytes(camera, width, height)));
+                }
+
+                long totalBytes = 0;
+                foreach (var f in frames) totalBytes += f.png.Length;
+                var autoFallback = !save_to_file && totalBytes > MaxInlineScreenshotBytes;
+                var spillToFiles = save_to_file || autoFallback;
+
+                var captures = new List<object>(frames.Count);
+                var frameIndex = 0;
+                foreach (var (azimuth, elevation, pngBytes) in frames)
+                {
+                    if (spillToFiles)
                     {
                         var baseName = $"multiview-{frameIndex:D2}-az{azimuth:0}-el{elevation:0}";
                         if (!TrySaveScreenshotBytes(pngBytes, null, baseName, out var savedPath, out var saveError))
@@ -387,8 +403,11 @@ namespace Funplay.Editor.Tools.Builtins
                     frameIndex++;
                 }
 
-                return Response.Success(
-                    $"Captured {captures.Count} multiview frame(s) of '{targetName}' in {modeNormalized} mode.",
+                var msg = autoFallback
+                    ? $"Captured {captures.Count} multiview frame(s) of '{targetName}' ({modeNormalized}); combined {totalBytes} bytes exceeded the inline limit so frames were saved to files. Read them to view."
+                    : $"Captured {captures.Count} multiview frame(s) of '{targetName}' in {modeNormalized} mode.";
+
+                return Response.Success(msg,
                     new
                     {
                         target = new
@@ -402,6 +421,9 @@ namespace Funplay.Editor.Tools.Builtins
                         fov = orbit_fov,
                         per_frame = new { width, height },
                         count = captures.Count,
+                        total_bytes = totalBytes,
+                        saved_to_files = spillToFiles,
+                        fell_back_to_file = autoFallback,
                         captures
                     });
             }
@@ -599,7 +621,7 @@ namespace Funplay.Editor.Tools.Builtins
 
             if (!string.IsNullOrWhiteSpace(requestedName))
             {
-                var go = GameObject.Find(requestedName);
+                var go = ObjectsHelper.FindTarget(requestedName);
                 if (go == null)
                 {
                     errorCode = "TARGET_NOT_FOUND";
