@@ -72,12 +72,14 @@ namespace Funplay.Editor.Tools.Builtins
                 return ToolResultFormatter.Exception(ex);
             }
 
+            var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             var job = new JObject
             {
                 ["jobId"] = guid,
                 ["status"] = "running",
                 ["mode"] = testMode.ToString(),
-                ["startedAt"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                ["startedAt"] = now,
+                ["lastActivityAt"] = now,
                 ["testsCompleted"] = 0,
                 ["hasFilters"] = hasFilters
             };
@@ -89,7 +91,10 @@ namespace Funplay.Editor.Tools.Builtins
         }
 
         [Description("Get the status and results of a test run started by run_tests. While running, reports progress; " +
-                     "when finished, reports pass/fail/skip counts and details for failed tests.")]
+                     "when finished, reports pass/fail/skip counts and details for failed tests. If no test-runner " +
+                     "callback has fired for a while, the response includes possiblyStuck=true with a stuckHint -- " +
+                     "Unity's Test Runner only supports one run at a time engine-wide and can be silently occupied by " +
+                     "a concurrent caller against the same Editor, with no error surfaced otherwise.")]
         [ReadOnlyTool]
         public static object GetTestJob(
             [ToolParam("Job id returned by run_tests. Omit to query the most recent run.", Required = false)] string job_id = null)
@@ -102,7 +107,41 @@ namespace Funplay.Editor.Tools.Builtins
             if (!string.IsNullOrEmpty(job_id) && !string.Equals(job_id, storedId, StringComparison.Ordinal))
                 return Response.Error("JOB_NOT_FOUND", new { job_id, activeJobId = storedId, hint = "Only the most recent run is tracked." });
 
+            AnnotateIfPossiblyStuck(job);
             return Response.Success($"Test job {job.Value<string>("status")}.", job);
+        }
+
+        // Unity's Test Runner only supports one active run at a time, engine-wide, and this
+        // package has no way to see runs started by other tools/sessions/processes against the
+        // same Editor -- a concurrent caller (or a stale run left over from one) can silently
+        // occupy the engine with no exception and no error surfaced here, leaving a run stuck at
+        // "running" forever. Rather than reflect into Unity's private, version-fragile internal
+        // run-tracking singleton to detect that directly, use a much simpler and more robust
+        // signal we already own: if no ICallbacks activity (RunStarted/TestStarted/TestFinished)
+        // has touched this job in a while, something has stopped progressing.
+        private const int StuckThresholdSeconds = 30;
+
+        private static void AnnotateIfPossiblyStuck(JObject job)
+        {
+            if (job.Value<string>("status") != "running") return;
+
+            var referenceTime = job.Value<string>("lastActivityAt") ?? job.Value<string>("startedAt");
+            if (!DateTime.TryParseExact(referenceTime, "yyyy-MM-dd HH:mm:ss",
+                    System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None,
+                    out var reference))
+                return;
+
+            var elapsedSeconds = (int)(DateTime.Now - reference).TotalSeconds;
+            if (elapsedSeconds < StuckThresholdSeconds) return;
+
+            job["possiblyStuck"] = true;
+            job["stuckHint"] =
+                $"No test-runner callback has fired in over {elapsedSeconds}s. Unity's Test Runner only supports " +
+                "one active run at a time engine-wide, and this package cannot see runs started by other " +
+                "tools/sessions/processes against the same Editor -- a concurrent caller (or a stale run left " +
+                "over from one) can occupy the engine with no error surfaced here. Check get_editor_state and " +
+                "get_console_logs for signs of concurrent activity (e.g. an unexpected Play Mode session), or " +
+                "cancel and retry once the Editor is confirmed idle and used by only this session.";
         }
 
         [Description("Cancel a running test run. Use when a run appears stuck (e.g. a PlayMode run that never finishes).")]
@@ -214,10 +253,17 @@ namespace Funplay.Editor.Tools.Builtins
                 {
                     job["totalTests"] = CountLeafTests(testsToRun);
                 }
+                job["lastActivityAt"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                 TestRunnerFunctions.SaveJob(job);
             }
 
-            public void TestStarted(ITestAdaptor test) { }
+            public void TestStarted(ITestAdaptor test)
+            {
+                var job = TestRunnerFunctions.LoadJob();
+                if (job == null || job.Value<string>("status") != "running") return;
+                job["lastActivityAt"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                TestRunnerFunctions.SaveJob(job);
+            }
 
             public void TestFinished(ITestResultAdaptor result)
             {
@@ -225,6 +271,7 @@ namespace Funplay.Editor.Tools.Builtins
                 var job = TestRunnerFunctions.LoadJob();
                 if (job == null || job.Value<string>("status") != "running") return;
                 job["testsCompleted"] = (job.Value<int?>("testsCompleted") ?? 0) + 1;
+                job["lastActivityAt"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                 TestRunnerFunctions.SaveJob(job);
             }
 

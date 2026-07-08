@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- `get_test_job` now flags `possiblyStuck: true` with a `stuckHint` when no test-runner callback (`RunStarted`/`TestStarted`/`TestFinished`) has fired for over 30 seconds on a run still reported as `running`. Unity's Test Runner only supports one active run at a time engine-wide, and this package has no way to see runs started by other tools/sessions/processes against the same Editor -- a concurrent caller (or a stale leftover run) can silently occupy the engine with no exception surfaced, leaving `run_tests`/`get_test_job` reporting `running` forever with no diagnostic signal. This turns that into an actionable hint instead of a silent hang.
+
 ## [0.5.0] - 2026-07-07
 
 ### Added
