@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+- `execute_code` gained a `skip_refresh` option that bypasses the pre-compile `AssetDatabase.Refresh` + wait-for-ready. Use it for read-only inspection snippets or during a live Play Mode session you must not disturb: the default refresh can trigger an import/domain reload (from your own or another actor's pending changes in a shared editor) that wipes Play Mode runtime state. When skipped, external file edits since the last compile are not picked up.
+- Screenshot captures now auto-fall back to a file when the base64 payload would exceed a safe transport size (~768 KB), instead of emitting an oversized payload that reliably drops the client socket. The response is the same `{ path, bytes, fell_back_to_file: true }` envelope as an explicit `save_to_file`, with `fell_back_to_file` distinguishing an automatic spill from an explicit one. Small captures are still returned inline; `save_to_file` remains an explicit override.
+
+### Fixed
+- Tool argument parsing no longer silently coerces a malformed value to `default(T)` / `Vector3.zero` and runs with it. A value that can't be parsed into its parameter type (a non-numeric int, a two-component `'x,y'` passed where an `'x,y,z'` vector is expected, an out-of-range enum, etc.) now returns a structured `INVALID_PARAM` error naming the parameter, the provided value, and the expected format -- both in the generic reflection-based invoker and in `set_transform` / `create_primitive`'s own vector parsing (`create_primitive` validates before creating the object, so a bad value leaves no half-created primitive).
+- Several `Profiler`/memory tools returned error/precondition conditions (`get_object_memory` with an empty target, `memory_list_snapshots` with no snapshots, `get_frame_timing` with no timing available, `frame_debugger_get_events` with no events) as bare human-readable strings on the success channel, so callers -- and the plugin's own `IsError()` check -- treated the failure as success. They now return structured `{ success: false, code }` errors.
+- Every tool response is now uniformly parseable as `{ success, ... }`. Legacy tools that returned a bare human-readable string on success (while only errors were structured JSON) are wrapped in `{ success: true, message }` by the result serializer. Image data URIs and strings that are already a `{ success: ... }` envelope pass through untouched, so screenshots still render as images and error envelopes are never double-wrapped.
+
 ## [0.5.0] - 2026-07-07
 
 ### Added

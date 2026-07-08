@@ -29,21 +29,31 @@ namespace Funplay.Editor.Tools.Builtins
             "Optional output .png path under the Unity project root (absolute, or relative to the project root). " +
             "Default: " + ScreenshotDirRelative + "/<name>-<timestamp>.png. Only used when save_to_file=true.";
 
+        // A base64 payload above this size reliably drops the client-side MCP socket, so an
+        // oversized capture is transparently spilled to disk instead of emitting a payload that
+        // kills the connection. Callers that never want inline data can still pass save_to_file.
+        private const int MaxInlineScreenshotBytes = 768 * 1024;
+
         /// <summary>
         /// Single exit point for all capture tools: base64 data URI by default, or
-        /// write-to-disk + JSON path result when the caller asked for a file.
+        /// write-to-disk + JSON path result when the caller asked for a file (or when the
+        /// payload is too large to send inline, in which case it auto-falls back to a file).
         /// </summary>
         private static string FinishCapture(byte[] pngBytes, bool saveToFile, string outputPath, string defaultBaseName)
         {
-            if (!saveToFile)
+            var autoFallback = !saveToFile && pngBytes.Length > MaxInlineScreenshotBytes;
+
+            if (!saveToFile && !autoFallback)
                 return ImagePrefix + Convert.ToBase64String(pngBytes);
 
             if (!TrySaveScreenshotBytes(pngBytes, outputPath, defaultBaseName, out var savedPath, out var error))
                 return ToolResultFormatter.Error("SCREENSHOT_SAVE_FAILED", error);
 
             return JsonConvert.SerializeObject(Response.Success(
-                "Screenshot saved to file.",
-                new { path = savedPath, bytes = pngBytes.Length }));
+                autoFallback
+                    ? $"Screenshot ({pngBytes.Length} bytes) exceeded the inline transport limit and was saved to a file instead. Read the file to view it."
+                    : "Screenshot saved to file.",
+                new { path = savedPath, bytes = pngBytes.Length, fell_back_to_file = autoFallback }));
         }
 
         private static bool TrySaveScreenshotBytes(byte[] pngBytes, string outputPath, string baseName, out string savedPath, out object error)

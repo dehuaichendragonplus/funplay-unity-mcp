@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using Funplay.Editor.Tools.Helpers;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace Funplay.Editor.Tools
@@ -54,6 +55,13 @@ namespace Funplay.Editor.Tools
                 var result = method.Invoke(null, args);
                 return await NormalizeResultAsync(result);
             }
+            catch (ToolArgumentException pex)
+            {
+                // A parameter could not be parsed. Surface it as a machine-detectable error
+                // instead of silently coercing to default(T) and running with a wrong value.
+                return ToolResultFormatter.Error("INVALID_PARAM",
+                    new { param = pex.ParamName, provided = pex.Provided, expected = pex.Expected });
+            }
             catch (TargetInvocationException ex)
             {
                 var inner = ex.InnerException ?? ex;
@@ -77,7 +85,7 @@ namespace Funplay.Editor.Tools
 
                 var resultProperty = task.GetType().GetProperty("Result");
                 if (resultProperty == null)
-                    return "OK";
+                    return SerializeResult(null);
 
                 var taskResult = resultProperty.GetValue(task);
                 return SerializeResult(taskResult);
@@ -91,9 +99,9 @@ namespace Funplay.Editor.Tools
         private static string SerializeResult(object value)
         {
             if (value == null)
-                return "OK";
+                return JsonConvert.SerializeObject(Response.Success("OK"));
             if (value is string s)
-                return s;
+                return WrapLegacyStringResult(s);
             try
             {
                 return JsonConvert.SerializeObject(value);
@@ -101,7 +109,41 @@ namespace Funplay.Editor.Tools
             catch (Exception ex)
             {
                 Debug.LogWarning($"[Funplay] Failed to serialize tool result: {ex.Message}");
-                return value.ToString() ?? "OK";
+                return JsonConvert.SerializeObject(Response.Success(value.ToString() ?? "OK"));
+            }
+        }
+
+        // Legacy tools return a bare human-readable string on success and only switch to a
+        // structured {success:false,...} JSON on failure, so callers can't uniformly branch on a
+        // `success` field. Wrap a bare success string in the standard envelope so EVERY tool
+        // response is parseable as {success, message}. Two things pass through untouched:
+        //   (a) image data URIs ("data:...") -- MCPRequestHandler renders these as image content;
+        //   (b) strings that are ALREADY a {success:...} envelope (ToolResultFormatter.Error, or a
+        //       tool that hand-built one via JsonConvert) -- so we never double-wrap.
+        private static string WrapLegacyStringResult(string s)
+        {
+            if (s == null)
+                return JsonConvert.SerializeObject(Response.Success("OK"));
+            if (s.StartsWith("data:", StringComparison.Ordinal))
+                return s;
+            if (IsEnvelopeJson(s))
+                return s;
+            return JsonConvert.SerializeObject(Response.Success(s));
+        }
+
+        private static bool IsEnvelopeJson(string s)
+        {
+            var trimmed = s.TrimStart();
+            if (trimmed.Length == 0 || trimmed[0] != '{')
+                return false;
+            try
+            {
+                var obj = JObject.Parse(s);
+                return obj.TryGetValue("success", out var token) && token.Type == JTokenType.Boolean;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -125,7 +167,14 @@ namespace Funplay.Editor.Tools
 
                 if (value != null)
                 {
-                    args[i] = ConvertValue(value, param.ParameterType);
+                    try
+                    {
+                        args[i] = ConvertValue(value, param.ParameterType);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new ToolArgumentException(snakeName, value, DescribeExpectedFormat(param.ParameterType), ex);
+                    }
                 }
                 else if (param.HasDefaultValue)
                 {
@@ -157,64 +206,56 @@ namespace Funplay.Editor.Tools
                 targetType = underlying;
             }
 
-            try
-            {
-                if (targetType == typeof(int))
-                    return int.Parse(value, CultureInfo.InvariantCulture);
-                if (targetType == typeof(long))
-                    return long.Parse(value, CultureInfo.InvariantCulture);
-                if (targetType == typeof(float))
-                    return float.Parse(value, CultureInfo.InvariantCulture);
-                if (targetType == typeof(double))
-                    return double.Parse(value, CultureInfo.InvariantCulture);
-                if (targetType == typeof(bool))
-                    return value == "true" || value == "1" || value.Equals("yes", StringComparison.OrdinalIgnoreCase);
-                if (targetType.IsEnum)
-                    return Enum.Parse(targetType, value, ignoreCase: true);
+            // NOTE: parse failures are intentionally NOT swallowed here. They propagate to
+            // BuildArguments, which rethrows them as a ToolArgumentException so the caller gets
+            // an INVALID_PARAM error instead of a silent default(T) / zero-vector wrong write.
+            if (targetType == typeof(int))
+                return int.Parse(value, CultureInfo.InvariantCulture);
+            if (targetType == typeof(long))
+                return long.Parse(value, CultureInfo.InvariantCulture);
+            if (targetType == typeof(float))
+                return float.Parse(value, CultureInfo.InvariantCulture);
+            if (targetType == typeof(double))
+                return double.Parse(value, CultureInfo.InvariantCulture);
+            if (targetType == typeof(bool))
+                return value == "true" || value == "1" || value.Equals("yes", StringComparison.OrdinalIgnoreCase);
+            if (targetType.IsEnum)
+                return Enum.Parse(targetType, value, ignoreCase: true);
 
-                // Vector3: "x,y,z" or "(x,y,z)"
-                if (targetType == typeof(Vector3))
-                    return ParseVector3(value);
-                // Vector2
-                if (targetType == typeof(Vector2))
-                    return ParseVector2(value);
-                // Color: "r,g,b,a" or "r,g,b" or "#hex"
-                if (targetType == typeof(Color))
-                    return ParseColor(value);
+            // Vector3: "x,y,z" or "(x,y,z)"
+            if (targetType == typeof(Vector3))
+                return ParseVector3(value);
+            // Vector2
+            if (targetType == typeof(Vector2))
+                return ParseVector2(value);
+            // Color: "r,g,b,a" or "r,g,b" or "#hex"
+            if (targetType == typeof(Color))
+                return ParseColor(value);
 
-                return Convert.ChangeType(value, targetType, CultureInfo.InvariantCulture);
-            }
-            catch
-            {
-                return GetDefaultForType(targetType);
-            }
+            return Convert.ChangeType(value, targetType, CultureInfo.InvariantCulture);
         }
 
         private Vector3 ParseVector3(string value)
         {
             value = value.Trim('(', ')', ' ');
             var parts = value.Split(',');
-            if (parts.Length >= 3)
-            {
-                return new Vector3(
-                    float.Parse(parts[0].Trim(), CultureInfo.InvariantCulture),
-                    float.Parse(parts[1].Trim(), CultureInfo.InvariantCulture),
-                    float.Parse(parts[2].Trim(), CultureInfo.InvariantCulture));
-            }
-            return Vector3.zero;
+            if (parts.Length != 3)
+                throw new FormatException($"expected 3 comma-separated numbers 'x,y,z', got {parts.Length}");
+            return new Vector3(
+                float.Parse(parts[0].Trim(), CultureInfo.InvariantCulture),
+                float.Parse(parts[1].Trim(), CultureInfo.InvariantCulture),
+                float.Parse(parts[2].Trim(), CultureInfo.InvariantCulture));
         }
 
         private Vector2 ParseVector2(string value)
         {
             value = value.Trim('(', ')', ' ');
             var parts = value.Split(',');
-            if (parts.Length >= 2)
-            {
-                return new Vector2(
-                    float.Parse(parts[0].Trim(), CultureInfo.InvariantCulture),
-                    float.Parse(parts[1].Trim(), CultureInfo.InvariantCulture));
-            }
-            return Vector2.zero;
+            if (parts.Length != 2)
+                throw new FormatException($"expected 2 comma-separated numbers 'x,y', got {parts.Length}");
+            return new Vector2(
+                float.Parse(parts[0].Trim(), CultureInfo.InvariantCulture),
+                float.Parse(parts[1].Trim(), CultureInfo.InvariantCulture));
         }
 
         private Color ParseColor(string value)
@@ -224,20 +265,18 @@ namespace Funplay.Editor.Tools
             {
                 if (ColorUtility.TryParseHtmlString(value, out var c))
                     return c;
+                throw new FormatException($"'{value}' is not a valid #hex color");
             }
 
             value = value.Trim('(', ')', ' ');
             var parts = value.Split(',');
-            if (parts.Length >= 3)
-            {
-                float r = float.Parse(parts[0].Trim(), CultureInfo.InvariantCulture);
-                float g = float.Parse(parts[1].Trim(), CultureInfo.InvariantCulture);
-                float b = float.Parse(parts[2].Trim(), CultureInfo.InvariantCulture);
-                float a = parts.Length >= 4 ? float.Parse(parts[3].Trim(), CultureInfo.InvariantCulture) : 1f;
-                return new Color(r, g, b, a);
-            }
-
-            return Color.white;
+            if (parts.Length < 3 || parts.Length > 4)
+                throw new FormatException($"expected 'r,g,b' or 'r,g,b,a' or '#hex', got {parts.Length} components");
+            float r = float.Parse(parts[0].Trim(), CultureInfo.InvariantCulture);
+            float g = float.Parse(parts[1].Trim(), CultureInfo.InvariantCulture);
+            float b = float.Parse(parts[2].Trim(), CultureInfo.InvariantCulture);
+            float a = parts.Length >= 4 ? float.Parse(parts[3].Trim(), CultureInfo.InvariantCulture) : 1f;
+            return new Color(r, g, b, a);
         }
 
         private object GetDefaultForType(Type type)
@@ -245,6 +284,38 @@ namespace Funplay.Editor.Tools
             if (type.IsValueType)
                 return Activator.CreateInstance(type);
             return null;
+        }
+
+        // Human-readable expected-format hint for an INVALID_PARAM error, so the caller knows
+        // what shape the value should have taken.
+        private static string DescribeExpectedFormat(Type type)
+        {
+            var t = Nullable.GetUnderlyingType(type) ?? type;
+            if (t == typeof(int) || t == typeof(long)) return "an integer";
+            if (t == typeof(float) || t == typeof(double)) return "a number";
+            if (t == typeof(bool)) return "a boolean ('true'/'false'/'1'/'0'/'yes')";
+            if (t == typeof(Vector3)) return "a Vector3 'x,y,z'";
+            if (t == typeof(Vector2)) return "a Vector2 'x,y'";
+            if (t == typeof(Color)) return "a Color 'r,g,b[,a]' or '#hex'";
+            if (t.IsEnum) return $"one of [{string.Join(", ", Enum.GetNames(t))}]";
+            return t.Name;
+        }
+    }
+
+    // Thrown when a tool argument string cannot be converted to the parameter's type. Carries
+    // enough context for the invoker to return a structured INVALID_PARAM error.
+    internal sealed class ToolArgumentException : Exception
+    {
+        public string ParamName { get; }
+        public string Provided { get; }
+        public string Expected { get; }
+
+        public ToolArgumentException(string paramName, string provided, string expected, Exception inner)
+            : base($"Parameter '{paramName}' could not be parsed as {expected}.", inner)
+        {
+            ParamName = paramName;
+            Provided = provided;
+            Expected = expected;
         }
     }
 }
