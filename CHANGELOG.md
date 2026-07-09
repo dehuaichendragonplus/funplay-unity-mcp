@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- The MCP Server window's **Tool Exposure** row gained a gear button next to the core/full dropdown that opens the full Tool Exposure settings window in one click. It pre-selects that window's "Edit Tool List" to the profile currently active in the MCP Server window (via a new `FunplayToolExposureWindow.ShowWindow(string editProfile)` overload), so after switching the dropdown to `full`, opening the settings edits the `full` list instead of always defaulting to `core`. The parameterless `ShowWindow()` used by the `Funplay/Tool Exposure` menu item is unchanged.
+
 ## [0.5.0] - 2026-07-07
 
 ### Added
