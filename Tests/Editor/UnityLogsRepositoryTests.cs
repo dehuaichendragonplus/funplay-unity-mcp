@@ -74,5 +74,19 @@ namespace Funplay.Editor.Tests
             Assert.That(truncated, Does.StartWith(new string('a', 300)));
             Assert.That(truncated, Does.EndWith("... (+5 chars)"));
         }
+
+        [Test]
+        public void FormatStackTrace_NormalizesLineEndingsAndCapsLength()
+        {
+            var normalized = UnityLogsRepository.FormatStackTrace("First\r\nSecond\rThird\n");
+
+            Assert.AreEqual("\n    First\n    Second\n    Third", normalized);
+            Assert.That(normalized, Does.Not.Contain("\r"));
+
+            var longTrace = new string('s', 2105);
+            var truncated = UnityLogsRepository.FormatStackTrace(longTrace);
+            Assert.That(truncated, Does.StartWith("\n    " + new string('s', 2000)));
+            Assert.That(truncated, Does.EndWith("... (+105 chars)"));
+        }
     }
 }

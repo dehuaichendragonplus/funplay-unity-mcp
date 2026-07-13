@@ -16,7 +16,7 @@ namespace Funplay.Editor.Tools.Builtins
                      "Use root_name to start from a specific object, or leave empty for full scene.")]
         [ReadOnlyTool]
         public static string GetHierarchy(
-            [ToolParam("Root object name to start from (empty = entire scene)", Required = false)] string root_name = "",
+            [ToolParam("Root object name, hierarchy path, or instance ID to start from (empty = entire scene). Finds inactive objects too.", Required = false)] string root_name = "",
             [ToolParam("Maximum depth to traverse (1-10)", Required = false)] int depth = 3,
             [ToolParam("Include component names on each object", Required = false)] bool include_components = true,
             [ToolParam("Include inactive objects", Required = false)] bool include_inactive = true)
@@ -28,23 +28,9 @@ namespace Funplay.Editor.Tools.Builtins
 
                 if (!string.IsNullOrEmpty(root_name))
                 {
-                    // Find specific root
-                    GameObject root = GameObject.Find(root_name);
-                    if (root == null)
-                    {
-                        // Search inactive objects too, across every loaded scene (additively
-                        // loaded scenes are real content GetActiveScene() alone would miss).
-                        for (int i = 0; i < SceneManager.sceneCount && root == null; i++)
-                        {
-                            var candidateScene = SceneManager.GetSceneAt(i);
-                            if (!candidateScene.isLoaded) continue;
-                            foreach (var sceneRoot in candidateScene.GetRootGameObjects())
-                            {
-                                root = FindInChildren(sceneRoot.transform, root_name)?.gameObject;
-                                if (root != null) break;
-                            }
-                        }
-                    }
+                    // ObjectsHelper already searches every loaded scene (additively loaded ones
+                    // included) plus the open prefab stage, and finds inactive objects.
+                    var root = ObjectsHelper.FindTarget(root_name);
                     if (root == null)
                         return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { root_name });
 
@@ -121,17 +107,6 @@ namespace Funplay.Editor.Tools.Builtins
                 names.Add(name);
             }
             return names.Count > 0 ? string.Join(", ", names) : "-";
-        }
-
-        private static Transform FindInChildren(Transform parent, string name)
-        {
-            if (parent.name == name) return parent;
-            for (int i = 0; i < parent.childCount; i++)
-            {
-                var result = FindInChildren(parent.GetChild(i), name);
-                if (result != null) return result;
-            }
-            return null;
         }
     }
 }

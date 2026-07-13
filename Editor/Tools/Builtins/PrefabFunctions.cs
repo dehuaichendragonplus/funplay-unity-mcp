@@ -14,17 +14,17 @@ namespace Funplay.Editor.Tools.Builtins
         [Description("Create a prefab from a GameObject in the scene")]
         [SceneEditingTool]
         public static string CreatePrefab(
-            [ToolParam("Name of the GameObject to convert")] string game_object_name,
+            [ToolParam("GameObject name, hierarchy path, or instance ID. Finds inactive objects too.")] string game_object_name,
             [ToolParam("Path to save prefab (e.g. 'Assets/Prefabs/')", Required = false)] string save_path = "Assets/Prefabs/")
         {
-            var go = GameObject.Find(game_object_name);
+            var go = ObjectsHelper.FindTarget(game_object_name);
             if (go == null)
                 return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { game_object_name });
 
             if (!Directory.Exists(save_path))
                 Directory.CreateDirectory(save_path);
 
-            var fullPath = $"{save_path}{game_object_name}.prefab";
+            var fullPath = $"{save_path}{go.name}.prefab";
             var prefab = PrefabUtility.SaveAsPrefabAssetAndConnect(go, fullPath, InteractionMode.UserAction);
             return prefab != null
                 ? $"Created prefab at {fullPath}"
@@ -60,10 +60,10 @@ namespace Funplay.Editor.Tools.Builtins
         [Description("Unpack a prefab instance in the scene")]
         [SceneEditingTool]
         public static string UnpackPrefab(
-            [ToolParam("Name of the prefab instance")] string game_object_name,
+            [ToolParam("Prefab instance name, hierarchy path, or instance ID. Finds inactive objects too.")] string game_object_name,
             [ToolParam("Unpack mode: 'completely' or 'outermost'", Required = false)] string mode = "completely")
         {
-            var go = GameObject.Find(game_object_name);
+            var go = ObjectsHelper.FindTarget(game_object_name);
             if (go == null)
                 return ToolResultFormatter.Error("GAME_OBJECT_NOT_FOUND", new { game_object_name });
 
@@ -75,7 +75,7 @@ namespace Funplay.Editor.Tools.Builtins
                 : PrefabUnpackMode.Completely;
 
             PrefabUtility.UnpackPrefabInstance(go, unpackMode, InteractionMode.UserAction);
-            return $"Unpacked prefab '{game_object_name}' ({mode})";
+            return $"Unpacked prefab '{go.name}' ({mode})";
         }
 
         [Description("Open a prefab asset in Prefab Mode (an isolated prefab stage) for editing its contents directly, " +

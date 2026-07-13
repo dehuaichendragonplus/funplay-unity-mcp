@@ -6,6 +6,7 @@
 - The MCP Server window's **Tool Exposure** row now includes a settings button that opens the full Tool Exposure window with the active `core` or `full` profile pre-selected.
 
 ### Fixed
+- Built-in tools that accept a GameObject target now consistently resolve names, hierarchy paths, and instance IDs through `ObjectsHelper`, including inactive objects and additively loaded scenes. `get_console_logs` also supports an opt-in `include_stack_trace` argument with independently capped, normalized stack output.
 - `MCPBrokerTransportTests` (8 of the package's 61 EditMode tests) hardcoded the broker source path as `Assets/unity-mcp/Editor/MCP/Server/Broker/keepalive-broker.cs.txt`, which only exists when this repo's own source is checked out directly under `Assets/` -- it always failed in any project that installs the package properly (embedded, git, or registry), since there the source lives under `Packages/<name>` or `Library/PackageCache/<name>@version`. Both the filesystem lookup (`ResolveBrokerSourcePath`, used by 7 tests via `CreateBrokerPaths`) and the `AssetDatabase` lookup (`BrokerSource_IsVisibleToAssetDatabaseForUnityPackageExport`) now resolve through `PackageInfo.FindForAssembly` first and only fall back to the old `Assets/unity-mcp` path when the assembly isn't part of a package (preserving this repo's own dev-checkout layout).
 
 ## [0.5.0] - 2026-07-07

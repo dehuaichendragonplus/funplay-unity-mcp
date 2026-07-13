@@ -3,6 +3,7 @@
 using System;
 using System.IO;
 using Funplay.Editor.Tools.Builtins;
+using Funplay.Editor.Tools.Helpers;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -13,6 +14,52 @@ namespace Funplay.Editor.Tests
 {
     public sealed class SceneHierarchyFunctionsTests
     {
+        [Test]
+        public void FindTarget_ResolvesInactiveObjectsByNamePathAndInstanceId()
+        {
+            var suffix = Guid.NewGuid().ToString("N");
+            var scene = SceneManager.GetActiveScene();
+            var wasDirty = scene.isDirty;
+            GameObject firstRoot = null;
+            GameObject secondRoot = null;
+            GameObject inactiveByName = null;
+
+            try
+            {
+                firstRoot = new GameObject("FirstRoot_" + suffix);
+                secondRoot = new GameObject("SecondRoot_" + suffix);
+                var duplicateName = "Duplicate_" + suffix;
+                var firstChild = new GameObject(duplicateName);
+                var secondChild = new GameObject(duplicateName);
+                inactiveByName = new GameObject("Inactive_" + suffix);
+
+                firstChild.transform.SetParent(firstRoot.transform);
+                secondChild.transform.SetParent(secondRoot.transform);
+                firstChild.SetActive(false);
+                inactiveByName.SetActive(false);
+
+                Assert.AreSame(inactiveByName, ObjectsHelper.FindTarget(inactiveByName.name));
+                Assert.AreSame(firstChild, ObjectsHelper.FindTarget(firstRoot.name + "/" + duplicateName));
+                Assert.AreSame(secondChild, ObjectsHelper.FindTarget(secondRoot.name + "/" + duplicateName));
+                Assert.AreSame(firstChild, ObjectsHelper.FindTarget(ObjectIdHelper.GetSerializableId(firstChild)));
+            }
+            finally
+            {
+                if (firstRoot != null) UnityEngine.Object.DestroyImmediate(firstRoot);
+                if (secondRoot != null) UnityEngine.Object.DestroyImmediate(secondRoot);
+                if (inactiveByName != null) UnityEngine.Object.DestroyImmediate(inactiveByName);
+                if (!wasDirty && scene.IsValid())
+                {
+                    var clearDirtiness = typeof(EditorSceneManager).GetMethod(
+                        "ClearSceneDirtiness",
+                        System.Reflection.BindingFlags.Static |
+                        System.Reflection.BindingFlags.Public |
+                        System.Reflection.BindingFlags.NonPublic);
+                    clearDirtiness?.Invoke(null, new object[] { scene });
+                }
+            }
+        }
+
         [Test]
         public void HierarchyAndSceneInfo_IncludeLoadedAdditiveScenes()
         {
