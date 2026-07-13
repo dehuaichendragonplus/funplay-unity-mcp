@@ -20,10 +20,18 @@ namespace Funplay.Editor.MCP.Server
     {
         internal const string ManagedMarker = "<!-- Funplay Unity MCP managed project skills -->";
 
+        // For shared root instructions files (CLAUDE.md / AGENTS.md) Funplay manages ONLY the
+        // region between ManagedMarker (begin) and ManagedEndMarker (end); everything outside the
+        // block is the user's and is never modified. ManagedMarker doubles as the begin marker so
+        // IsManagedFile / version-status detection keep working unchanged.
+        internal const string ManagedEndMarker = "<!-- /Funplay Unity MCP managed project skills -->";
+
         private const string ManifestDirectory = ".funplay/skills";
         private const string ManifestFileName = "manifest.json";
         private const string ProjectSkillVersionsMarkerPrefix = "<!-- Funplay Unity MCP project skill versions: ";
         private const string SkillVersionMarkerPrefix = "<!-- Funplay Unity MCP skill version: ";
+        private const string CodexManagedNotice = "This section is managed by Funplay MCP for Unity. Everything between the begin and end markers is regenerated on each sync; edit outside this block.";
+        private const string ClaudeManagedNotice = "This section is managed by Funplay MCP for Unity for Claude Code. Everything between the begin and end markers is regenerated on each sync; edit outside this block.";
 
         private static readonly string[] SupportedPlatforms = { "codex", "claude", "cursor" };
 
@@ -227,20 +235,9 @@ namespace Funplay.Editor.MCP.Server
             var conflicts = new List<string>();
             var platforms = new HashSet<string>(selectedPlatforms ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
 
-            if (platforms.Contains("codex"))
-            {
-                var path = GetCodexAgentsPath(projectRoot);
-                if (File.Exists(path) && !IsManagedFile(path))
-                    conflicts.Add(path);
-            }
-
-            if (platforms.Contains("claude"))
-            {
-                var path = GetClaudeInstructionsPath(projectRoot);
-                if (File.Exists(path) && !IsManagedFile(path))
-                    conflicts.Add(path);
-            }
-
+            // AGENTS.md and CLAUDE.md are shared files. Their Funplay block is appended when no
+            // managed marker exists, so user-owned content there is no longer an overwrite conflict.
+            // Cursor rules remain Funplay-namespaced whole files and still need conflict handling.
             if (platforms.Contains("cursor"))
             {
                 var rulesRoot = GetCursorRulesPath(projectRoot);
@@ -289,14 +286,21 @@ namespace Funplay.Editor.MCP.Server
 
             if (!enabled)
             {
-                DeleteManagedFile(agentsPath);
+                RemoveManagedBlock(agentsPath, "# AGENTS.md", BuildLegacyCodexAgentsContent(projectRoot, manifest));
                 DeleteManagedSkillDirectories(skillsRoot);
                 return;
             }
 
             Directory.CreateDirectory(skillsRoot);
 
-            File.WriteAllText(agentsPath, BuildCodexAgentsContent(projectRoot, manifest));
+            // Manage only the delimited begin..end block; hand-authored content elsewhere in
+            // AGENTS.md is preserved (created/appended if the file has no block yet).
+            WriteManagedBlock(
+                agentsPath,
+                "# AGENTS.md",
+                BuildCodexManagedBlock(projectRoot, manifest),
+                BuildLegacyCodexAgentsContent(projectRoot, manifest));
+
             WriteManagedSkillDirectories(skillsRoot, manifest, SkillPlatform.Codex);
         }
 
@@ -308,14 +312,21 @@ namespace Funplay.Editor.MCP.Server
 
             if (!enabled)
             {
-                DeleteManagedFile(claudePath);
+                RemoveManagedBlock(claudePath, "# CLAUDE.md", BuildLegacyClaudeInstructionsContent(projectRoot, manifest));
                 DeleteManagedSkillDirectories(skillsRoot);
                 return;
             }
 
             Directory.CreateDirectory(skillsRoot);
 
-            File.WriteAllText(claudePath, BuildClaudeInstructionsContent(projectRoot, manifest));
+            // Manage only the delimited begin..end block; hand-authored content elsewhere in
+            // CLAUDE.md is preserved (created/appended if the file has no block yet).
+            WriteManagedBlock(
+                claudePath,
+                "# CLAUDE.md",
+                BuildClaudeManagedBlock(projectRoot, manifest),
+                BuildLegacyClaudeInstructionsContent(projectRoot, manifest));
+
             WriteManagedSkillDirectories(skillsRoot, manifest, SkillPlatform.Claude);
         }
 
@@ -382,10 +393,134 @@ namespace Funplay.Editor.MCP.Server
             }
         }
 
-        private static void DeleteManagedFile(string path)
+        // Write `block` (which begins with ManagedMarker and ends with ManagedEndMarker) into a
+        // shared root instructions file, managing ONLY the delimited region and preserving all
+        // user content outside it:
+        //   - file absent/empty        -> create `defaultTitle` + block
+        //   - complete begin..end block -> replace just the block region in place
+        //   - begin marker, no end      -> migrate an exact legacy generated file; otherwise stop
+        //                                  with a manual-migration error rather than clobber content
+        //   - no begin marker           -> append the block below the existing user content
+        private static void WriteManagedBlock(string path, string defaultTitle, string block, string legacyContent)
         {
-            if (IsManagedFile(path))
+            if (!File.Exists(path))
+            {
+                File.WriteAllText(path, defaultTitle + "\n\n" + block + "\n");
+                return;
+            }
+
+            var content = File.ReadAllText(path);
+            var beginCount = CountOccurrences(content, ManagedMarker);
+            var endCount = CountOccurrences(content, ManagedEndMarker);
+            var begin = content.IndexOf(ManagedMarker, StringComparison.Ordinal);
+            var end = begin >= 0
+                ? content.IndexOf(ManagedEndMarker, begin + ManagedMarker.Length, StringComparison.Ordinal)
+                : -1;
+
+            if (beginCount == 1 && endCount == 1 && end > begin)
+            {
+                var prefix = content.Substring(0, begin);
+                var suffix = content.Substring(end + ManagedEndMarker.Length);
+                File.WriteAllText(path, prefix + block + suffix);
+                return;
+            }
+
+            if (beginCount == 1 && endCount == 0)
+            {
+                if (ManagedTextEquals(content, legacyContent))
+                {
+                    File.WriteAllText(path, defaultTitle + "\n\n" + block + "\n");
+                    return;
+                }
+
+                throw new InvalidOperationException(
+                    $"'{path}' contains a legacy Funplay begin marker without an end marker and no longer exactly matches the known generated file. No content was changed. Preserve any hand-authored text, then either remove the legacy begin marker so Funplay can append a new block, or add '{ManagedEndMarker}' immediately after the Funplay-managed section.");
+            }
+
+            if (beginCount != 0 || endCount != 0)
+                throw new InvalidOperationException(
+                    $"'{path}' contains duplicate, unmatched, or out-of-order Funplay managed markers. No content was changed. Keep exactly one '{ManagedMarker}' followed by one '{ManagedEndMarker}'.");
+
+            var trimmed = content.TrimEnd('\n', '\r', ' ', '\t');
+            var userContent = trimmed.Length == 0 ? defaultTitle : trimmed;
+            File.WriteAllText(path, userContent + "\n\n" + block + "\n");
+        }
+
+        // Inverse of WriteManagedBlock, used when a platform is disabled: strip ONLY the managed
+        // block and keep the user's content. If nothing but a bare title (or whitespace) remains,
+        // the file was Funplay-only, so delete it. Exact legacy generated files can also be safely
+        // deleted; edited legacy files are left untouched and reported for manual cleanup.
+        private static void RemoveManagedBlock(string path, string defaultTitle, string legacyContent)
+        {
+            if (!File.Exists(path))
+                return;
+
+            var content = File.ReadAllText(path);
+            var beginCount = CountOccurrences(content, ManagedMarker);
+            var endCount = CountOccurrences(content, ManagedEndMarker);
+            var begin = content.IndexOf(ManagedMarker, StringComparison.Ordinal);
+            var end = begin >= 0
+                ? content.IndexOf(ManagedEndMarker, begin + ManagedMarker.Length, StringComparison.Ordinal)
+                : -1;
+
+            if (beginCount == 0 && endCount == 0)
+                return;
+
+            if (beginCount == 1 && endCount == 0)
+            {
+                if (ManagedTextEquals(content, legacyContent))
+                {
+                    File.Delete(path);
+                    return;
+                }
+
+                throw new InvalidOperationException(
+                    $"'{path}' contains an edited legacy Funplay file with no end marker. It was left untouched while disabling Project Skills. Preserve any hand-authored text and remove the stale Funplay section manually.");
+            }
+
+            if (beginCount != 1 || endCount != 1 || end <= begin)
+                throw new InvalidOperationException(
+                    $"'{path}' contains duplicate, unmatched, or out-of-order Funplay managed markers. It was left untouched while disabling Project Skills.");
+
+            var prefix = content.Substring(0, begin);
+            var suffix = content.Substring(end + ManagedEndMarker.Length);
+            var remaining = (prefix + suffix).Trim();
+
+            if (remaining.Length == 0 || remaining == defaultTitle.Trim())
+            {
                 File.Delete(path);
+                return;
+            }
+
+            File.WriteAllText(path, prefix.TrimEnd() + "\n" + suffix.TrimStart('\n', '\r'));
+        }
+
+        private static int CountOccurrences(string content, string marker)
+        {
+            if (string.IsNullOrEmpty(content) || string.IsNullOrEmpty(marker))
+                return 0;
+
+            var count = 0;
+            var index = 0;
+            while ((index = content.IndexOf(marker, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += marker.Length;
+            }
+            return count;
+        }
+
+        private static bool ManagedTextEquals(string left, string right)
+        {
+            return string.Equals(NormalizeManagedText(left), NormalizeManagedText(right), StringComparison.Ordinal);
+        }
+
+        private static string NormalizeManagedText(string value)
+        {
+            return (value ?? string.Empty)
+                .Replace("\r\n", "\n")
+                .Replace('\r', '\n')
+                .TrimEnd('\n', ' ', '\t');
         }
 
         private static List<SkillVersionEntry> BuildCurrentSkillVersionEntries(ProjectSkillsManifest manifest)
@@ -523,6 +658,27 @@ namespace Funplay.Editor.MCP.Server
                     true);
             }
 
+            if (expected.SkillId == "project")
+            {
+                var beginCount = CountOccurrences(content, ManagedMarker);
+                var endCount = CountOccurrences(content, ManagedEndMarker);
+                var begin = content.IndexOf(ManagedMarker, StringComparison.Ordinal);
+                var end = begin >= 0
+                    ? content.IndexOf(ManagedEndMarker, begin + ManagedMarker.Length, StringComparison.Ordinal)
+                    : -1;
+                if (beginCount != 1 || endCount != 1 || end <= begin)
+                {
+                    return new SkillFileVersionStatus(
+                        expected.Path,
+                        expected.SkillId,
+                        expected.ExpectedVersion,
+                        beginCount == 1 && endCount == 0 ? "legacy marker" : "invalid markers",
+                        false,
+                        false,
+                        true);
+                }
+            }
+
             if (content.Contains(expected.ExpectedMarker, StringComparison.Ordinal))
             {
                 return new SkillFileVersionStatus(
@@ -580,17 +736,16 @@ namespace Funplay.Editor.MCP.Server
             return content.Substring(start, end - start).Trim();
         }
 
-        private static string BuildCodexAgentsContent(string projectRoot, ProjectSkillsManifest manifest)
+        private static string BuildCodexManagedBlock(string projectRoot, ProjectSkillsManifest manifest)
         {
             var installed = GetInstalledSkills(manifest);
             return
-$@"# AGENTS.md
-{ManagedMarker}
+$@"{ManagedMarker}
 {BuildProjectSkillVersionsMarker(installed)}
 
 # Funplay Unity MCP Project Guidance
 
-This file is managed by Funplay MCP for Unity.
+{CodexManagedNotice}
 
 ## Installed project skills
 
@@ -625,20 +780,19 @@ This file is managed by Funplay MCP for Unity.
 ## Notes
 
 - Re-run `Funplay > Project Skills` after changing selected skills or platforms.
-";
+{ManagedEndMarker}";
         }
 
-        private static string BuildClaudeInstructionsContent(string projectRoot, ProjectSkillsManifest manifest)
+        private static string BuildClaudeManagedBlock(string projectRoot, ProjectSkillsManifest manifest)
         {
             var installed = GetInstalledSkills(manifest);
             return
-$@"# CLAUDE.md
-{ManagedMarker}
+$@"{ManagedMarker}
 {BuildProjectSkillVersionsMarker(installed)}
 
 # Funplay Unity MCP Project Guidance
 
-This file is managed by Funplay MCP for Unity for Claude Code.
+{ClaudeManagedNotice}
 
 ## Installed skills
 
@@ -669,7 +823,29 @@ This file is managed by Funplay MCP for Unity for Claude Code.
 
 - Project root: `{projectRoot}`
 - Product name: `{Application.productName}`
-";
+{ManagedEndMarker}";
+        }
+
+        private static string BuildLegacyCodexAgentsContent(string projectRoot, ProjectSkillsManifest manifest)
+        {
+            var block = RemoveManagedEndMarker(BuildCodexManagedBlock(projectRoot, manifest))
+                .Replace(CodexManagedNotice, "This file is managed by Funplay MCP for Unity.");
+            return "# AGENTS.md\n" + block + "\n";
+        }
+
+        private static string BuildLegacyClaudeInstructionsContent(string projectRoot, ProjectSkillsManifest manifest)
+        {
+            var block = RemoveManagedEndMarker(BuildClaudeManagedBlock(projectRoot, manifest))
+                .Replace(ClaudeManagedNotice, "This file is managed by Funplay MCP for Unity for Claude Code.");
+            return "# CLAUDE.md\n" + block + "\n";
+        }
+
+        private static string RemoveManagedEndMarker(string block)
+        {
+            var suffix = "\n" + ManagedEndMarker;
+            return block != null && block.EndsWith(suffix, StringComparison.Ordinal)
+                ? block.Substring(0, block.Length - suffix.Length)
+                : block;
         }
 
         private static string BuildCursorRuleContent(SkillDefinition skill)
