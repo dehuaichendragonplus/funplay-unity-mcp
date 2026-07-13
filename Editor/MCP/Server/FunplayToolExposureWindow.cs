@@ -40,6 +40,28 @@ namespace Funplay.Editor.MCP.Server
             window.Show();
         }
 
+        /// <summary>
+        /// Open the window pre-selecting which profile's tool list to edit (e.g. the profile currently
+        /// active in the MCP Server window), so "Edit Tool List" starts on the list the user is using
+        /// rather than always defaulting to "core".
+        /// </summary>
+        public static void ShowWindow(string editProfile)
+        {
+            var window = GetWindow<FunplayToolExposureWindow>("Tool Exposure");
+            window.minSize = new Vector2(460, 560);
+            if (!string.IsNullOrEmpty(editProfile) && ProfileChoices.Contains(editProfile))
+            {
+                window._editingProfile = editProfile;
+                // If the UI is already built (an existing window is being reused), reflect the change
+                // now - setting the PopupField value fires its callback, which reloads the tool list.
+                // A freshly-created window whose CreateGUI hasn't run yet has a null field and will
+                // read _editingProfile when BuildUI runs.
+                if (window._editProfileField != null)
+                    window._editProfileField.value = editProfile;
+            }
+            window.Show();
+        }
+
         public void CreateGUI()
         {
             _settingsController = RootScopeServices.Services?.GetService(typeof(ISettingsController))
