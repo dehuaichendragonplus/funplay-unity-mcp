@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.5.1] - 2026-07-12
+
 ### Added
 - The MCP Server window's **Tool Exposure** row now includes a settings button that opens the full Tool Exposure window with the active `core` or `full` profile pre-selected.
 - `get_test_job` now reports `possiblyStuck`, the stalled phase, inactivity duration, and current test when Test Runner callbacks stop. Runner startup uses a 30-second threshold while a known running test gets 120 seconds to avoid premature warnings for normal long tests.
@@ -18,6 +20,9 @@
 - Tool argument parsing no longer silently coerces a malformed value to `default(T)` / `Vector3.zero` and runs with it. A missing required value now returns `MISSING_PARAM`; a value that cannot be parsed into its parameter type (a non-numeric int, a two-component `'x,y'` passed where an `'x,y,z'` vector is expected, an out-of-range enum, etc.) returns `INVALID_PARAM` with the parameter name, provided value, and expected format. This applies to reflected and manually registered tools, and `set_transform` / `create_primitive` validate vectors before modifying the scene.
 - Several `Profiler`/memory tools returned error/precondition conditions (`get_object_memory` with an empty target, `memory_list_snapshots` with no snapshots, `get_frame_timing` with no timing available, `frame_debugger_get_events` with no events) as bare human-readable strings on the success channel, so callers -- and the plugin's own `IsError()` check -- treated the failure as success. They now return structured `{ success: false, code }` errors.
 - Every tool response is now uniformly parseable as `{ success, ... }`. Legacy tools that returned a bare human-readable string on success (while only errors were structured JSON) are wrapped in `{ success: true, message }` by the result serializer. Image data URIs and strings that are already a `{ success: ... }` envelope pass through untouched, so screenshots still render as images and error envelopes are never double-wrapped.
+
+### Contributors
+- Thanks @dehuaichendragonplus for the fixes and feature proposals behind this release (#30, #31, #32, #33, #34, #35, #36).
 
 ## [0.5.0] - 2026-07-07
 
