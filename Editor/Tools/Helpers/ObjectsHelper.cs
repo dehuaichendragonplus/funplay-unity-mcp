@@ -64,11 +64,15 @@ namespace Funplay.Editor.Tools.Helpers
             if (string.IsNullOrEmpty(target))
                 return results;
 
-            // Auto-detect default method
+            // Auto-detect default method. A purely-numeric target is AMBIGUOUS: it can be an
+            // instance id OR the name of an object literally called "2048"/"512". Committing to
+            // by_id would make such name-only objects permanently unfindable (the by_id branch has
+            // no fallback), so route numerics through by_id_or_name_or_path — it tries the id first
+            // and falls back to a name lookup when nothing resolves by id.
             if (string.IsNullOrEmpty(searchMethod))
             {
                 if (long.TryParse(target, out _))
-                    searchMethod = MethodById;
+                    searchMethod = MethodByIdOrNameOrPath;
                 else if (target.Contains('/'))
                     searchMethod = MethodByPath;
                 else
