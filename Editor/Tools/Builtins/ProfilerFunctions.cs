@@ -183,7 +183,17 @@ namespace Funplay.Editor.Tools.Builtins
                 foreach (var key in keysToShow)
                 {
                     var recorder = _recorders[key];
-                    sb.AppendLine($"{key}: last={recorder.LastValueAsDouble:F0}, current={recorder.CurrentValueAsDouble:F0}, unit={recorder.UnitType}");
+                    if (IsUnavailableInEditor(key))
+                    {
+                        // KNOWN LIMITATION: Render-category ProfilerRecorder counters read a constant 0 in the
+                        // Unity Editor even during confirmed active rendering. Report null + unavailable_in_editor
+                        // rather than a bare 0, which would masquerade as a real measurement.
+                        sb.AppendLine($"{key}: value=null, unavailable_in_editor=true (Render-category counters read 0 in the Editor; use a Standalone Player build for real values)");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"{key}: last={recorder.LastValueAsDouble:F0}, current={recorder.CurrentValueAsDouble:F0}, unit={recorder.UnitType}");
+                    }
                 }
                 return sb.ToString();
             }
@@ -191,6 +201,19 @@ namespace Funplay.Editor.Tools.Builtins
             {
                 return ToolResultFormatter.Exception(ex);
             }
+        }
+
+        // Categories whose ProfilerRecorder counters are known to read a constant 0 in the Unity Editor
+        // (verified: Render-category — Draw Calls/Batches/SetPass Calls/Triangles/Vertices — read 0 in the
+        // Editor even while frame_debugger_get_events shows real draw events; Memory-category is unaffected).
+        // Keyed off the "Category/Name" recorder key prefix.
+        private static bool IsUnavailableInEditor(string recorderKey)
+        {
+            if (!Application.isEditor)
+                return false;
+            int slash = recorderKey.IndexOf('/');
+            var category = slash > 0 ? recorderKey.Substring(0, slash) : recorderKey;
+            return category.Equals("Render", StringComparison.OrdinalIgnoreCase);
         }
 
         private static void StartRecorders()
