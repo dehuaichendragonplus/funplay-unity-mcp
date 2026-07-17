@@ -16,7 +16,6 @@ namespace Funplay.Editor.Tools.Builtins
     internal static class InputInteractionFunctions
     {
         [Description("Simulate a mouse click at a screen position in Play Mode. Coordinates are in screen pixels with 0,0 at the bottom-left. Works without the Input System by dispatching UI and physics events. Returns a structured result reporting whether a target was actually hit, by which strategy, and the object that was clicked (or null when nothing was hit).")]
-        [ReadOnlyTool]
         public static object SimulateMouseClick(
             [ToolParam("Screen X coordinate in pixels")] int x,
             [ToolParam("Screen Y coordinate in pixels")] int y,
@@ -27,70 +26,134 @@ namespace Funplay.Editor.Tools.Builtins
 
             try
             {
-                var inputButton = ParseButton(button);
+                if (!TryParseButton(button, out var inputButton))
+                {
+                    return Response.Error("INVALID_MOUSE_BUTTON", new
+                    {
+                        button,
+                        allowed = new[] { "left", "right", "middle" }
+                    });
+                }
+
                 var uiPosition = ResolveUiClickPosition(x, y, out var uiMessage);
                 var viewportPosition = ResolveViewportClickPosition(x, y, out var viewportMessage);
 
-                // The click behavior is unchanged: the UI path (EventSystem raycast, then a
-                // direct-Button fallback) and the physics path both run. Each strategy now
-                // reports honestly whether it actually landed on a target.
                 var attempts = new List<ClickOutcome>();
-                var uiOutcome = PerformUiClick(Mathf.RoundToInt(uiPosition.x), Mathf.RoundToInt(uiPosition.y), inputButton, attempts);
-                var physicsOutcome = PerformPhysicsClick(viewportPosition, attempts);
+                var uiOutcome = PerformUiClick(
+                    Mathf.RoundToInt(uiPosition.x),
+                    Mathf.RoundToInt(uiPosition.y),
+                    inputButton,
+                    attempts);
+                ClickOutcome winner = uiOutcome.Hit ? uiOutcome : null;
 
-                var winner = uiOutcome.Hit ? uiOutcome : (physicsOutcome.Hit ? physicsOutcome : null);
-                var hit = winner != null;
-
-                object target = null;
-                string hitName = null;
-                if (hit && winner.Target != null)
+                // Match normal input precedence: UI gets first refusal. A raycast blocker
+                // prevents click-through even when it has no click handler.
+                if (winner == null && !uiOutcome.BlocksFurtherDispatch)
                 {
-                    hitName = winner.Target.name;
-                    target = new { name = hitName, instanceId = ObjectIdHelper.GetSerializableId(winner.Target) };
+                    var physicsOutcome = PerformPhysicsClick(viewportPosition, attempts);
+                    if (physicsOutcome.Hit)
+                        winner = physicsOutcome;
                 }
 
-                var requested = $"screen({x}, {y}) {inputButton.ToString().ToLowerInvariant()}";
+                var hit = winner != null;
 
                 var attempted = new List<object>();
                 foreach (var attempt in attempts)
-                    attempted.Add(new { strategy = attempt.Strategy, hit = attempt.Hit, detail = attempt.Detail });
+                {
+                    attempted.Add(new
+                    {
+                        strategy = attempt.Strategy,
+                        hit = attempt.Hit,
+                        blocked = attempt.BlocksFurtherDispatch,
+                        target = BuildTargetPayload(attempt.Target),
+                        blockedBy = BuildTargetPayload(attempt.BlockedBy),
+                        detail = attempt.Detail
+                    });
+                }
+
+                ClickTargetSnapshot blockedBy = null;
+                foreach (var attempt in attempts)
+                {
+                    if (attempt.BlockedBy != null)
+                    {
+                        blockedBy = attempt.BlockedBy;
+                        break;
+                    }
+                }
 
                 var data = new
                 {
                     hit,
                     strategy = hit ? winner.Strategy : null,
-                    target,
-                    requested,
+                    target = BuildTargetPayload(hit ? winner.Target : null),
+                    blockedBy = BuildTargetPayload(blockedBy),
+                    requested = new
+                    {
+                        x,
+                        y,
+                        button = inputButton.ToString().ToLowerInvariant()
+                    },
                     attempted,
                     mapping = new
                     {
-                        ui = uiMessage,
-                        viewport = viewportMessage
+                        ui = new { x = uiPosition.x, y = uiPosition.y, detail = uiMessage },
+                        viewport = new
+                        {
+                            x = viewportPosition.x,
+                            y = viewportPosition.y,
+                            detail = viewportMessage
+                        }
                     }
                 };
 
                 var message = hit
-                    ? $"Mouse {button} click at ({x}, {y}) hit '{hitName}' via {winner.Strategy}"
-                    : $"Mouse {button} click at ({x}, {y}) hit no target ({attempts.Count} strategies tried)";
+                    ? $"Mouse {button} click at ({x}, {y}) hit '{winner.Target.Name}' via {winner.Strategy}"
+                    : blockedBy != null
+                        ? $"Mouse {button} click at ({x}, {y}) was blocked by '{blockedBy.Name}' with no click handler"
+                        : $"Mouse {button} click at ({x}, {y}) hit no target ({attempts.Count} strategies tried)";
 
                 return Response.Success(message, data);
             }
             catch (Exception ex)
             {
-                return ToolResultFormatter.Exception(ex);
+                return Response.Error("MOUSE_CLICK_FAILED", new
+                {
+                    message = ex.Message,
+                    exception_type = ex.GetType().FullName
+                });
             }
         }
 
-        private sealed class ClickOutcome
+        internal sealed class ClickTargetSnapshot
+        {
+            public string Name;
+            public string InstanceId;
+            public string Path;
+        }
+
+        internal sealed class ClickOutcome
         {
             public string Strategy;
             public bool Hit;
-            public GameObject Target;
+            public bool BlocksFurtherDispatch;
+            public ClickTargetSnapshot Target;
+            public ClickTargetSnapshot BlockedBy;
             public string Detail;
 
-            public static ClickOutcome Miss(string strategy, string detail)
+            public static ClickOutcome Miss(
+                string strategy,
+                string detail,
+                bool blocksFurtherDispatch = false,
+                ClickTargetSnapshot blockedBy = null)
             {
-                return new ClickOutcome { Strategy = strategy, Hit = false, Target = null, Detail = detail };
+                return new ClickOutcome
+                {
+                    Strategy = strategy,
+                    Hit = false,
+                    BlocksFurtherDispatch = blocksFurtherDispatch,
+                    BlockedBy = blockedBy,
+                    Detail = detail
+                };
             }
         }
 
@@ -132,39 +195,91 @@ namespace Funplay.Editor.Tools.Builtins
             if (eventSystem == null)
             {
                 attempts.Add(ClickOutcome.Miss("ui-eventsystem", "no EventSystem found"));
-                return PerformDirectButtonFallback(new Vector2(x, y), attempts);
+                return PerformDirectButtonFallback(new Vector2(x, y), inputButton, attempts);
             }
 
             var pointerData = CreatePointerData(eventSystem, new Vector2(x, y), inputButton);
             if (!TryGetTopUiTarget(eventSystem, pointerData, out var target, out var raycast))
             {
                 attempts.Add(ClickOutcome.Miss("ui-eventsystem", "no UI element at position"));
-                return PerformDirectButtonFallback(new Vector2(x, y), attempts);
+                return PerformDirectButtonFallback(new Vector2(x, y), inputButton, attempts);
             }
+
+            return DispatchUiClick(target, raycast, pointerData, attempts);
+        }
+
+        internal static ClickOutcome DispatchUiClick(
+            GameObject target,
+            RaycastResult raycast,
+            PointerEventData pointerData,
+            List<ClickOutcome> attempts)
+        {
+            if (target == null)
+            {
+                var missing = ClickOutcome.Miss("ui-eventsystem", "raycast target was destroyed before dispatch");
+                attempts.Add(missing);
+                return missing;
+            }
+
+            var raycastTarget = CreateTargetSnapshot(target);
+            var enterReceiver = ExecuteEvents.GetEventHandler<IPointerEnterHandler>(target);
+            var downReceiver = ExecuteEvents.GetEventHandler<IPointerDownHandler>(target);
+            var upReceiver = ExecuteEvents.GetEventHandler<IPointerUpHandler>(target);
+            var clickReceiver = ExecuteEvents.GetEventHandler<IPointerClickHandler>(target);
+            var clickReceiverSnapshot = CreateTargetSnapshot(clickReceiver);
 
             pointerData.pointerCurrentRaycast = raycast;
             pointerData.pointerPressRaycast = raycast;
-            ExecuteEvents.ExecuteHierarchy(target, pointerData, ExecuteEvents.pointerEnterHandler);
-            ExecuteEvents.ExecuteHierarchy(target, pointerData, ExecuteEvents.pointerDownHandler);
-            ExecuteEvents.ExecuteHierarchy(target, pointerData, ExecuteEvents.pointerUpHandler);
-            ExecuteEvents.ExecuteHierarchy(target, pointerData, ExecuteEvents.pointerClickHandler);
+            if (enterReceiver != null)
+                ExecuteEvents.Execute(enterReceiver, pointerData, ExecuteEvents.pointerEnterHandler);
+            if (downReceiver != null)
+                ExecuteEvents.Execute(downReceiver, pointerData, ExecuteEvents.pointerDownHandler);
+            if (upReceiver != null)
+                ExecuteEvents.Execute(upReceiver, pointerData, ExecuteEvents.pointerUpHandler);
 
-            if (target.TryGetComponent<Button>(out var button))
-                button.onClick?.Invoke();
+            var clickDispatched = clickReceiver != null;
+            if (clickDispatched)
+                ExecuteEvents.Execute(clickReceiver, pointerData, ExecuteEvents.pointerClickHandler);
+
+            if (!clickDispatched)
+            {
+                var detail = clickReceiverSnapshot == null
+                    ? $"top UI hit '{raycastTarget.Name}' has no IPointerClickHandler in its parent chain"
+                    : $"click receiver '{clickReceiverSnapshot.Name}' was destroyed before pointerClick dispatch";
+                var blocked = ClickOutcome.Miss(
+                    "ui-eventsystem",
+                    detail,
+                    blocksFurtherDispatch: true,
+                    blockedBy: raycastTarget);
+                attempts.Add(blocked);
+                return blocked;
+            }
 
             var outcome = new ClickOutcome
             {
                 Strategy = "ui-eventsystem",
                 Hit = true,
-                Target = target,
-                Detail = $"clicked on '{target.name}'"
+                Target = clickReceiverSnapshot,
+                Detail = $"dispatched pointerClick to '{clickReceiverSnapshot.Name}'"
             };
             attempts.Add(outcome);
             return outcome;
         }
 
-        private static ClickOutcome PerformDirectButtonFallback(Vector2 position, List<ClickOutcome> attempts)
+        private static ClickOutcome PerformDirectButtonFallback(
+            Vector2 position,
+            PointerEventData.InputButton inputButton,
+            List<ClickOutcome> attempts)
         {
+            if (inputButton != PointerEventData.InputButton.Left)
+            {
+                var unsupported = ClickOutcome.Miss(
+                    "ui-direct-button",
+                    "direct Button fallback only invokes left clicks");
+                attempts.Add(unsupported);
+                return unsupported;
+            }
+
             foreach (var button in UnityEngine.Object.FindObjectsByType<Button>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (button == null || !button.isActiveAndEnabled)
@@ -177,13 +292,14 @@ namespace Funplay.Editor.Tools.Builtins
                 if (!RectTransformUtility.RectangleContainsScreenPoint(rectTransform, position, null))
                     continue;
 
+                var target = CreateTargetSnapshot(button.gameObject);
                 button.onClick?.Invoke();
                 var outcome = new ClickOutcome
                 {
                     Strategy = "ui-direct-button",
                     Hit = true,
-                    Target = button.gameObject,
-                    Detail = $"invoked onClick on '{button.name}'"
+                    Target = target,
+                    Detail = $"invoked onClick on '{target.Name}'"
                 };
                 attempts.Add(outcome);
                 return outcome;
@@ -208,14 +324,18 @@ namespace Funplay.Editor.Tools.Builtins
             var ray = mainCamera.ViewportPointToRay(new Vector3(viewportPosition.x, viewportPosition.y, 0f));
             if (Physics.Raycast(ray, out var hit, 1000f))
             {
-                hit.collider.gameObject.SendMessage("OnMouseDown", SendMessageOptions.DontRequireReceiver);
-                hit.collider.gameObject.SendMessage("OnMouseUp", SendMessageOptions.DontRequireReceiver);
+                var hitObject = hit.collider.gameObject;
+                var target = CreateTargetSnapshot(hitObject);
+                hitObject.SendMessage("OnMouseDown", SendMessageOptions.DontRequireReceiver);
+                if (hitObject != null)
+                    hitObject.SendMessage("OnMouseUp", SendMessageOptions.DontRequireReceiver);
+
                 var outcome = new ClickOutcome
                 {
                     Strategy = "physics-raycast",
                     Hit = true,
-                    Target = hit.collider.gameObject,
-                    Detail = $"OnMouseDown/OnMouseUp on '{hit.collider.gameObject.name}'"
+                    Target = target,
+                    Detail = $"dispatched OnMouseDown/OnMouseUp to '{target.Name}'"
                 };
                 attempts.Add(outcome);
                 return outcome;
@@ -224,6 +344,31 @@ namespace Funplay.Editor.Tools.Builtins
             var noHit = ClickOutcome.Miss("physics-raycast", "no 3D object hit");
             attempts.Add(noHit);
             return noHit;
+        }
+
+        private static ClickTargetSnapshot CreateTargetSnapshot(GameObject target)
+        {
+            if (target == null)
+                return null;
+
+            return new ClickTargetSnapshot
+            {
+                Name = target.name,
+                InstanceId = ObjectIdHelper.GetSerializableId(target),
+                Path = ObjectsHelper.GetGameObjectPath(target)
+            };
+        }
+
+        private static object BuildTargetPayload(ClickTargetSnapshot target)
+        {
+            return target == null
+                ? null
+                : new
+                {
+                    name = target.Name,
+                    instanceId = target.InstanceId,
+                    path = target.Path
+                };
         }
 
         private static PointerEventData CreatePointerData(EventSystem eventSystem, Vector2 position, PointerEventData.InputButton inputButton)
@@ -294,16 +439,22 @@ namespace Funplay.Editor.Tools.Builtins
             return false;
         }
 
-        private static PointerEventData.InputButton ParseButton(string button)
+        private static bool TryParseButton(string button, out PointerEventData.InputButton inputButton)
         {
             switch ((button ?? "left").Trim().ToLowerInvariant())
             {
+                case "left":
+                    inputButton = PointerEventData.InputButton.Left;
+                    return true;
                 case "right":
-                    return PointerEventData.InputButton.Right;
+                    inputButton = PointerEventData.InputButton.Right;
+                    return true;
                 case "middle":
-                    return PointerEventData.InputButton.Middle;
+                    inputButton = PointerEventData.InputButton.Middle;
+                    return true;
                 default:
-                    return PointerEventData.InputButton.Left;
+                    inputButton = PointerEventData.InputButton.Left;
+                    return false;
             }
         }
     }

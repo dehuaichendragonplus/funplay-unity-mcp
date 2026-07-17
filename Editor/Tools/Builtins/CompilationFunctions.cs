@@ -178,12 +178,17 @@ namespace Funplay.Editor.Tools.Builtins
             {
                 return Response.Success("No reload recovery event recorded.", new
                 {
-                    status = "none"
+                    recorded = false,
+                    status = "none",
+                    tool = (string)null,
+                    timestamp = (string)null,
+                    summary = (string)null
                 });
             }
 
             return Response.Success($"Recovery event: {info.Status}", new
             {
+                recorded = true,
                 status = info.Status,
                 tool = info.ToolName,
                 timestamp = info.Timestamp.ToString("O"),
