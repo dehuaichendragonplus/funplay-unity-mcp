@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- `execute_code` now returns structured CS0104/CS0433 ambiguity details. CS0104 calls can pass ordered `preferred_namespaces` to apply a type alias and retry once, with the original diagnostic line mapping preserved.
 - Added bounded multi-target editing to `set_transform`, `set_active`, `set_component_property`, and `set_component_properties`. Batch selectors can resolve comma-separated identifiers or one find spec and return per-target results.
 
 ### Changed
@@ -12,7 +13,7 @@
 - Component property writes now return authoritative post-write values for serialized and reflection-backed members, including per-target `newValue`/`applied` data in batch responses. Mutating tools also reject conflicting target selectors, malformed boolean values, and empty property maps without modifying scene objects.
 
 ### Contributors
-- Thanks @dehuaichendragonplus for the multi-target editing and component write-back work in #42.
+- Thanks @dehuaichendragonplus for the type-ambiguity diagnostics in #40 and the multi-target editing and component write-back work in #42.
 
 ## [0.5.2] - 2026-07-16
 

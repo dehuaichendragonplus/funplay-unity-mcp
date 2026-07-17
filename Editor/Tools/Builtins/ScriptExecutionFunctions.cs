@@ -67,7 +67,7 @@ namespace Funplay.Editor.Tools.Builtins
                             strict_filesystem_checks = strictFilesystemChecks,
                             hint = "Disable the strict filesystem guard in the MCP Settings window or pass safety_checks=false only for trusted local calls."
                         });
-                    AppendHistory(code, false, $"Blocked: {reason}");
+                    AppendHistory(code, false, $"Blocked: {reason}", preferred_namespaces);
                     return blocked;
                 }
             }
@@ -80,7 +80,7 @@ namespace Funplay.Editor.Tools.Builtins
                 }
                 catch (TimeoutException)
                 {
-                    AppendHistory(code, false, "EDITOR_BUSY");
+                    AppendHistory(code, false, "EDITOR_BUSY", preferred_namespaces);
                     return Response.Error("EDITOR_BUSY",
                         new { hint = "Unity is still compiling/importing. Retry in a moment, or pass skip_refresh=true if you know the editor is up to date." });
                 }
@@ -103,7 +103,7 @@ namespace Funplay.Editor.Tools.Builtins
             {
                 var root = UnwrapTargetInvocationException(ex);
                 Debug.LogError($"[Funplay] ExecuteCode failed: {root.GetType().FullName}: {root.Message}\n{root.StackTrace}");
-                AppendHistory(code, false, $"{root.GetType().Name}: {root.Message}");
+                AppendHistory(code, false, $"{root.GetType().Name}: {root.Message}", preferred_namespaces);
                 return Response.Error("EXECUTE_CODE_FAILED", new
                 {
                     message = root.Message,
@@ -148,6 +148,7 @@ namespace Funplay.Editor.Tools.Builtins
                     timestamp = entry.timestamp,
                     success = entry.success,
                     summary = entry.summary,
+                    preferred_namespaces = entry.preferredNamespaces,
                     code_preview = Preview(entry.code, 240),
                     code_length = entry.code?.Length ?? 0
                 });
@@ -300,9 +301,8 @@ namespace Funplay.Editor.Tools.Builtins
 
             if (compilation.Status == ScriptCompilationStatus.CompilationFailed)
             {
-                // CS0433: the same type name is provided by multiple loaded assemblies.
-                // Surface a structured disambiguation payload and, when preferred_namespaces is
-                // supplied, attempt a single alias-based recompile before giving up.
+                // Surface a structured disambiguation payload. CS0104 can be retried once with
+                // caller-selected aliases; CS0433 remains diagnostic-only.
                 if (TryGetTypeAmbiguities(compilation.Errors, out var ambiguities))
                 {
                     var preferred = ParsePreferredNamespaces(preferredNamespaces);
@@ -311,7 +311,7 @@ namespace Funplay.Editor.Tools.Builtins
                         var aliasBlock = BuildDisambiguationAliases(ambiguities, preferred, code);
                         if (!string.IsNullOrEmpty(aliasBlock))
                         {
-                            var retry = ScriptCompilerPipeline.Compile(aliasBlock + code);
+                            var retry = ScriptCompilerPipeline.Compile(BuildAliasRetryCode(aliasBlock, code));
                             if (retry.Status == ScriptCompilationStatus.Success && retry.Assembly != null)
                                 return ExecuteCompiledAssembly(retry.Assembly, className, retry.CompilerName, retry.Attempts);
 
@@ -327,8 +327,20 @@ namespace Funplay.Editor.Tools.Builtins
                                         compiler = compilation.CompilerName,
                                         errors = compilation.Errors,
                                         compiler_attempts = compilation.Attempts,
-                                        hint = "A using-alias for the ambiguous name was applied and recompiled, but other compilation errors remain. Error line numbers are offset by the injected alias line(s) prepended to your snippet."
+                                        hint = "A using-alias for the ambiguous name was applied and recompiled, but other compilation errors remain."
                                     });
+                            }
+
+                            if (retry.Status != ScriptCompilationStatus.CompilationFailed)
+                            {
+                                return Response.Error("COMPILATION_BACKEND_UNAVAILABLE", new
+                                {
+                                    phase = "alias_retry",
+                                    compiler = retry.CompilerName,
+                                    message = retry.Message,
+                                    compiler_attempts = retry.Attempts,
+                                    hint = "The initial compile identified a CS0104 ambiguity, but the compiler backend became unavailable before the alias retry completed."
+                                });
                             }
                         }
                     }
@@ -358,7 +370,7 @@ namespace Funplay.Editor.Tools.Builtins
             return ExecuteCompiledAssembly(compilation.Assembly, className, compilation.CompilerName, compilation.Attempts);
         }
 
-        private sealed class AmbiguousType
+        internal sealed class AmbiguousType
         {
             public string Kind;      // "CS0433" (same FQN in multiple assemblies) or "CS0104" (name ambiguous across namespaces)
             public string Type;      // CS0433: the full type name; CS0104: the ambiguous simple name as written
@@ -369,7 +381,7 @@ namespace Funplay.Editor.Tools.Builtins
         //  - CS0433 "the type 'X' exists in both 'AsmA' and 'AsmB'" → Type=X (full), Candidates=assembly short names.
         //  - CS0104 "'Name' is an ambiguous reference between 'Ns1.Name' and 'Ns2.Name'" → Type=Name (simple), Candidates=full type names.
         // Robust to localized compiler output by extracting the single-quoted tokens (first = identifier, rest = candidates).
-        private static bool TryGetTypeAmbiguities(List<ScriptCompilationError> errors, out List<AmbiguousType> ambiguities)
+        internal static bool TryGetTypeAmbiguities(List<ScriptCompilationError> errors, out List<AmbiguousType> ambiguities)
         {
             ambiguities = new List<AmbiguousType>();
             if (errors == null)
@@ -385,11 +397,25 @@ namespace Funplay.Editor.Tools.Builtins
                     continue;
 
                 var quoted = Regex.Matches(error.text ?? string.Empty, "'([^']+)'");
-                if (quoted.Count < 2)
+                if (quoted.Count < 3)
                     continue;
 
                 var kind = is433 ? "CS0433" : "CS0104";
                 var type = quoted[0].Groups[1].Value;
+                var candidates = new List<string>();
+                for (int i = 1; i < quoted.Count; i++)
+                {
+                    // CS0433 candidate token is an assembly identity ("Name, Version=..."); keep the short name.
+                    // CS0104 candidate token is a full type name ("Namespace.Type"); keep it verbatim.
+                    var raw = quoted[i].Groups[1].Value;
+                    var candidate = is433 ? raw.Split(',')[0].Trim() : raw.Trim();
+                    if (!string.IsNullOrEmpty(candidate) && !candidates.Contains(candidate))
+                        candidates.Add(candidate);
+                }
+
+                if (candidates.Count < 2)
+                    continue;
+
                 var existing = ambiguities.FirstOrDefault(a =>
                     a.Kind == kind && string.Equals(a.Type, type, StringComparison.Ordinal));
                 if (existing == null)
@@ -398,13 +424,9 @@ namespace Funplay.Editor.Tools.Builtins
                     ambiguities.Add(existing);
                 }
 
-                for (int i = 1; i < quoted.Count; i++)
+                foreach (var candidate in candidates)
                 {
-                    // CS0433 candidate token is an assembly identity ("Name, Version=..."); keep the short name.
-                    // CS0104 candidate token is a full type name ("Namespace.Type"); keep it verbatim.
-                    var raw = quoted[i].Groups[1].Value;
-                    var candidate = is433 ? raw.Split(',')[0].Trim() : raw.Trim();
-                    if (!string.IsNullOrEmpty(candidate) && !existing.Candidates.Contains(candidate))
+                    if (!existing.Candidates.Contains(candidate))
                         existing.Candidates.Add(candidate);
                 }
             }
@@ -454,14 +476,12 @@ namespace Funplay.Editor.Tools.Builtins
 
                 // Pick the candidate full type whose namespace the caller preferred.
                 string target = null;
-                foreach (var candidate in ambiguity.Candidates)
+                foreach (var preferredNamespace in preferred)
                 {
-                    var candNs = NamespaceOfType(candidate);
-                    if (preferred.Any(p => string.Equals(p, candNs, StringComparison.Ordinal)))
-                    {
-                        target = candidate;
+                    target = ambiguity.Candidates.FirstOrDefault(candidate =>
+                        string.Equals(preferredNamespace, NamespaceOfType(candidate), StringComparison.Ordinal));
+                    if (target != null)
                         break;
-                    }
                 }
 
                 if (target == null)
@@ -474,7 +494,15 @@ namespace Funplay.Editor.Tools.Builtins
             return sb.ToString();
         }
 
-        private static object BuildAmbiguousCompilationError(ScriptCompilationResult compilation, List<AmbiguousType> ambiguities)
+        private static string BuildAliasRetryCode(string aliasBlock, string code)
+        {
+            // Preserve the line mapping from the initial compile even though aliases are prepended.
+            return aliasBlock + "#line 1\n" + code;
+        }
+
+        internal static object BuildAmbiguousCompilationError(
+            ScriptCompilationResult compilation,
+            List<AmbiguousType> ambiguities)
         {
             var list = ambiguities ?? new List<AmbiguousType>();
             var ambiguousView = list

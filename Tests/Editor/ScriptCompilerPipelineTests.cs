@@ -2,6 +2,8 @@
 
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Funplay.Editor.Tools.Builtins;
@@ -14,6 +16,17 @@ namespace Funplay.Editor.Tests
 {
     public sealed class ScriptCompilerPipelineTests
     {
+        private const string AmbiguousRandomCode = @"using System;
+using UnityEngine;
+
+public class AmbiguousRandomSyntax
+{
+    public static string Run()
+    {
+        return typeof(Random).FullName;
+    }
+}";
+
         [Test]
         public void RoslynCompiler_ToolchainResolves()
         {
@@ -197,9 +210,181 @@ public class CommandSyntax : IFunplayCommand
                 });
         }
 
-        private static IEnumerator ExecuteCodeAndAssert(string code, Action<object> assert, bool skipRefresh = false)
+        [UnityTest]
+        public IEnumerator ExecuteCode_AmbiguousType_ReturnsStructuredCandidates()
         {
-            var task = ScriptExecutionFunctions.ExecuteCode(code, false, skipRefresh);
+            return ExecuteCodeAndAssert(
+                AmbiguousRandomCode,
+                result =>
+                {
+                    AssertError(result, "COMPILATION_FAILED");
+                    var data = GetProperty<object>(result, "data");
+                    var ambiguous = ((IEnumerable)GetProperty<object>(data, "ambiguous")).Cast<object>().Single();
+
+                    Assert.AreEqual("CS0104", GetProperty<string>(ambiguous, "kind"));
+                    Assert.AreEqual("Random", GetProperty<string>(ambiguous, "type"));
+                    CollectionAssert.AreEquivalent(
+                        new[] { "System.Random", "UnityEngine.Random" },
+                        (string[])GetProperty<object>(ambiguous, "candidates"));
+                },
+                skipRefresh: true);
+        }
+
+        [UnityTest]
+        public IEnumerator ExecuteCode_PreferredNamespace_ResolvesAmbiguity()
+        {
+            return ExecuteCodeAndAssert(
+                AmbiguousRandomCode,
+                result =>
+                {
+                    AssertSuccess(result);
+                    var data = GetProperty<object>(result, "data");
+                    Assert.AreEqual("UnityEngine.Random", GetProperty<string>(data, "result"));
+                    Assert.AreEqual("Roslyn", GetProperty<string>(data, "compiler"));
+                },
+                skipRefresh: true,
+                preferredNamespaces: "UnityEngine");
+        }
+
+        [UnityTest]
+        public IEnumerator ExecuteCode_PreferredNamespace_UsesCallerOrder()
+        {
+            return ExecuteCodeAndAssert(
+                AmbiguousRandomCode,
+                result =>
+                {
+                    AssertSuccess(result);
+                    var data = GetProperty<object>(result, "data");
+                    Assert.AreEqual("System.Random", GetProperty<string>(data, "result"));
+                },
+                skipRefresh: true,
+                preferredNamespaces: "System,UnityEngine");
+        }
+
+        [UnityTest]
+        public IEnumerator ExecuteCode_AliasRetry_PreservesDiagnosticLine()
+        {
+            const string code = @"using System;
+using UnityEngine;
+
+public class AmbiguousRandomWithOtherError
+{
+    public static string Run()
+    {
+        MissingPr40Type value = null;
+        return typeof(Random).FullName;
+    }
+}";
+            var baseline = ScriptCompilerPipeline.Compile(code);
+            var expectedLine = baseline.Errors.Single(error => error.code == "CS0246").line;
+
+            return ExecuteCodeAndAssert(
+                code,
+                result =>
+                {
+                    AssertError(result, "COMPILATION_FAILED");
+                    var data = GetProperty<object>(result, "data");
+                    var errors = ((IEnumerable)GetProperty<object>(data, "errors")).Cast<object>();
+                    var missingType = errors.Single(error => GetField<string>(error, "code") == "CS0246");
+                    Assert.AreEqual(expectedLine, GetField<int>(missingType, "line"));
+                    StringAssert.DoesNotContain("offset", GetProperty<string>(data, "hint"));
+                },
+                skipRefresh: true,
+                preferredNamespaces: "UnityEngine");
+        }
+
+        [UnityTest]
+        public IEnumerator ExecuteCodeHistory_PreservesPreferredNamespacesForReplay()
+        {
+            ScriptExecutionFunctions.ClearExecuteCodeHistory();
+            var task = ScriptExecutionFunctions.ExecuteCode(
+                AmbiguousRandomCode,
+                false,
+                true,
+                "System");
+            while (!task.IsCompleted)
+                yield return null;
+
+            if (task.Exception != null)
+                throw task.Exception;
+            AssertSuccess(task.Result);
+
+            var history = ScriptExecutionFunctions.GetExecuteCodeHistory(1);
+            var historyData = GetProperty<object>(history, "data");
+            var entry = ((IEnumerable)GetProperty<object>(historyData, "entries")).Cast<object>().Single();
+            Assert.AreEqual("System", GetProperty<string>(entry, "preferred_namespaces"));
+            var index = GetProperty<int>(entry, "index");
+
+            var replay = ScriptExecutionFunctions.ReplayExecuteCode(index, false);
+            while (!replay.IsCompleted)
+                yield return null;
+
+            if (replay.Exception != null)
+                throw replay.Exception;
+            AssertSuccess(replay.Result);
+            var replayData = GetProperty<object>(replay.Result, "data");
+            Assert.AreEqual("System.Random", GetProperty<string>(replayData, "result"));
+            ScriptExecutionFunctions.ClearExecuteCodeHistory();
+        }
+
+        [UnityTest]
+        public IEnumerator ExecuteCodeHistory_BlockedCallPreservesPreferredNamespaces()
+        {
+            ScriptExecutionFunctions.ClearExecuteCodeHistory();
+            var task = ScriptExecutionFunctions.ExecuteCode(
+                "System.IO.File.Delete(\"blocked-by-test\");",
+                true,
+                true,
+                "UnityEngine");
+            while (!task.IsCompleted)
+                yield return null;
+
+            if (task.Exception != null)
+                throw task.Exception;
+            AssertError(task.Result, "SAFETY_CHECK_BLOCKED");
+
+            var history = ScriptExecutionFunctions.GetExecuteCodeHistory(1);
+            var historyData = GetProperty<object>(history, "data");
+            var entry = ((IEnumerable)GetProperty<object>(historyData, "entries")).Cast<object>().Single();
+            Assert.AreEqual("UnityEngine", GetProperty<string>(entry, "preferred_namespaces"));
+            ScriptExecutionFunctions.ClearExecuteCodeHistory();
+        }
+
+        [Test]
+        public void TypeAmbiguityDiagnostics_CS0433_ReturnStructuredAssemblies()
+        {
+            var errors = new List<ScriptCompilationError>
+            {
+                new ScriptCompilationError
+                {
+                    line = 4,
+                    column = 12,
+                    code = "CS0433",
+                    text = "The type 'Example.Widget' exists in both 'HotUpdate, Version=1.0.0.0' and 'GameScripts, Version=2.0.0.0'"
+                }
+            };
+
+            Assert.IsTrue(ScriptExecutionFunctions.TryGetTypeAmbiguities(errors, out var ambiguities));
+            var compilation = ScriptCompilationResult.CompilationFailed("Roslyn", errors);
+            var result = ScriptExecutionFunctions.BuildAmbiguousCompilationError(compilation, ambiguities);
+
+            AssertError(result, "COMPILATION_FAILED");
+            var data = GetProperty<object>(result, "data");
+            var ambiguous = ((IEnumerable)GetProperty<object>(data, "ambiguous")).Cast<object>().Single();
+            Assert.AreEqual("CS0433", GetProperty<string>(ambiguous, "kind"));
+            Assert.AreEqual("Example.Widget", GetProperty<string>(ambiguous, "type"));
+            CollectionAssert.AreEquivalent(
+                new[] { "Example.Widget, HotUpdate", "Example.Widget, GameScripts" },
+                (string[])GetProperty<object>(ambiguous, "candidates"));
+        }
+
+        private static IEnumerator ExecuteCodeAndAssert(
+            string code,
+            Action<object> assert,
+            bool skipRefresh = false,
+            string preferredNamespaces = null)
+        {
+            var task = ScriptExecutionFunctions.ExecuteCode(code, false, skipRefresh, preferredNamespaces);
             while (!task.IsCompleted)
                 yield return null;
 
