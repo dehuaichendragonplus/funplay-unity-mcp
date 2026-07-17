@@ -45,7 +45,7 @@ namespace Funplay.Editor.Tools.Builtins
             if (go == null)
                 return Response.Error("SOURCE_NOT_FOUND", new { source_target, find_method });
 
-            var comp = ResolveComponentOnGo(go, component_type);
+            var comp = ObjectsHelper.ResolveComponentOnGo(go, component_type);
             if (comp == null)
             {
                 var available = string.Join(", ", go.GetComponents<Component>()
@@ -76,7 +76,7 @@ namespace Funplay.Editor.Tools.Builtins
         }
 
         [Description("Paste the editor's SHARED component clipboard (last filled by copy_component) onto many GameObjects. " +
-                     "`targets` is a comma-separated list of identifiers, or a single find spec that resolves to many " +
+                     "`targets` is a comma-separated list of identifiers, or a single find spec that resolves to at most 100 objects " +
                      "(e.g. a tag with find_method=by_tag). When as_new is true a NEW component is added to each target; " +
                      "otherwise the clipboard values are pasted onto each target's existing component of component_type. " +
                      "Returns per-target success so partial failures are diagnosable. NOTE: Unity exposes no API to read " +
@@ -84,7 +84,7 @@ namespace Funplay.Editor.Tools.Builtins
                      "manual Ctrl+C or another copy happened since copy_component, that newer component is what gets pasted.")]
         [SceneEditingTool]
         public static object PasteComponentValues(
-            [ToolParam("Comma-separated identifiers, or a single find spec resolving to many")] string targets,
+            [ToolParam("Comma-separated identifiers, or a single find spec resolving to at most 100 objects")] string targets,
             [ToolParam("Component type to paste onto each target (required unless as_new). e.g. 'Rigidbody'", Required = false)] string component_type = null,
             [ToolParam("true to paste as a NEW component on each target instead of onto an existing one", Required = false)] bool as_new = false,
             [ToolParam("How to resolve targets", Required = false)] string find_method = null)
@@ -97,9 +97,8 @@ namespace Funplay.Editor.Tools.Builtins
                 return Response.Error("COMPONENT_TYPE_REQUIRED",
                     new { hint = "Provide component_type to locate the existing component, or set as_new=true." });
 
-            var gos = ResolveManyTargets(targets, find_method);
-            if (gos.Count == 0)
-                return Response.Error("NO_TARGETS_RESOLVED", new { targets, find_method });
+            if (!TryResolveBatchTargets(targets, find_method, out var gos, out var resolutionError))
+                return resolutionError;
 
             var results = new List<object>();
             int success = 0;
@@ -127,7 +126,7 @@ namespace Funplay.Editor.Tools.Builtins
                     }
                     else
                     {
-                        var comp = ResolveComponentOnGo(go, component_type);
+                        var comp = ObjectsHelper.ResolveComponentOnGo(go, component_type);
                         if (comp == null)
                         {
                             results.Add(new { target = go.name, instanceId = ObjectIdHelper.GetSerializableId(go), ok = false, error = "COMPONENT_NOT_ON_TARGET" });
@@ -153,11 +152,11 @@ namespace Funplay.Editor.Tools.Builtins
         }
 
         [Description("Add a component of component_type to many GameObjects in one Undo-tracked call. " +
-                     "`targets` is a comma-separated list of identifiers, or a single find spec that resolves to many. " +
+                     "`targets` is a comma-separated list of identifiers, or a single find spec that resolves to at most 100 objects. " +
                      "Returns per-target success with each new component's instanceId.")]
         [SceneEditingTool]
         public static object AddComponentToMany(
-            [ToolParam("Comma-separated identifiers, or a single find spec resolving to many")] string targets,
+            [ToolParam("Comma-separated identifiers, or a single find spec resolving to at most 100 objects")] string targets,
             [ToolParam("Component type name to add (e.g. 'BoxCollider', 'UnityEngine.UI.Image')")] string component_type,
             [ToolParam("How to resolve targets", Required = false)] string find_method = null)
         {
@@ -168,9 +167,8 @@ namespace Funplay.Editor.Tools.Builtins
             if (type == null)
                 return Response.Error("COMPONENT_TYPE_NOT_FOUND", new { component_type });
 
-            var gos = ResolveManyTargets(targets, find_method);
-            if (gos.Count == 0)
-                return Response.Error("NO_TARGETS_RESOLVED", new { targets, find_method });
+            if (!TryResolveBatchTargets(targets, find_method, out var gos, out var resolutionError))
+                return resolutionError;
 
             var results = new List<object>();
             int success = 0;
@@ -202,58 +200,36 @@ namespace Funplay.Editor.Tools.Builtins
 
         // -------- Helpers --------
 
-        /// <summary>
-        /// Resolve the given component type on a GameObject: TypeResolver first (handles full/namespaced
-        /// names), then a case-insensitive fallback across attached components (matches ComponentProperty).
-        /// Returns null if none match.
-        /// </summary>
-        private static Component ResolveComponentOnGo(GameObject go, string typeName)
+        private static bool TryResolveBatchTargets(string targets, string findMethod,
+            out List<GameObject> gameObjects, out object error)
         {
-            if (go == null || string.IsNullOrEmpty(typeName))
-                return null;
+            gameObjects = ObjectsHelper.ResolveMany(
+                targets,
+                findMethod,
+                searchInactive: true,
+                maxResults: ObjectsHelper.DefaultBatchTargetLimit,
+                limitExceeded: out var limitExceeded);
 
-            var type = TypeResolver.ResolveComponent(typeName);
-            if (type != null)
+            if (limitExceeded)
             {
-                var c = go.GetComponent(type);
-                if (c != null) return c;
-            }
-
-            foreach (var c in go.GetComponents<Component>())
-            {
-                if (c == null) continue;
-                if (string.Equals(c.GetType().Name, typeName, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(c.GetType().FullName, typeName, StringComparison.OrdinalIgnoreCase))
-                    return c;
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// Resolve MANY GameObjects from a comma-separated list OR a single find spec. Each token is
-        /// resolved via <see cref="ObjectsHelper.FindObjects"/> with findAll, so one token can expand to
-        /// many (e.g. a tag/name shared by several objects). Results are de-duplicated, order preserved.
-        /// </summary>
-        private static List<GameObject> ResolveManyTargets(string targets, string findMethod)
-        {
-            var results = new List<GameObject>();
-            if (string.IsNullOrWhiteSpace(targets))
-                return results;
-
-            foreach (var raw in targets.Split(','))
-            {
-                var token = raw.Trim();
-                if (token.Length == 0)
-                    continue;
-
-                var found = ObjectsHelper.FindObjects(token, findMethod, findAll: true, searchInactive: true);
-                foreach (var go in found)
+                error = Response.Error("TOO_MANY_TARGETS", new
                 {
-                    if (go != null && !results.Contains(go))
-                        results.Add(go);
-                }
+                    find_method = findMethod,
+                    maxTargets = ObjectsHelper.DefaultBatchTargetLimit,
+                    resolvedAtLeast = gameObjects.Count,
+                    hint = "Narrow the selector or split the operation into smaller batches."
+                });
+                return false;
             }
-            return results;
+
+            if (gameObjects.Count == 0)
+            {
+                error = Response.Error("NO_TARGETS_RESOLVED", new { targets, find_method = findMethod });
+                return false;
+            }
+
+            error = null;
+            return true;
         }
     }
 }

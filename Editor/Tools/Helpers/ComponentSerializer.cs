@@ -61,6 +61,118 @@ namespace Funplay.Editor.Tools.Helpers
             return list;
         }
 
+        /// <summary>
+        /// Read a public property or field by name for writes that used the reflection fallback.
+        /// The value is converted to the same compact, JSON-safe shapes used by serialized-property
+        /// reads so callers do not need to serialize arbitrary Unity objects or component graphs.
+        /// </summary>
+        public static bool TryReadPublicMember(UnityEngine.Object component, string name, out PropertySnapshot snapshot)
+        {
+            snapshot = null;
+            if (component == null || string.IsNullOrWhiteSpace(name))
+                return false;
+
+            var type = component.GetType();
+            var property = type.GetProperty(name,
+                BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (property != null && property.CanRead && property.GetIndexParameters().Length == 0)
+            {
+                try
+                {
+                    snapshot = CreateReflectionSnapshot(name, property.PropertyType, property.GetValue(component, null));
+                    return true;
+                }
+                catch
+                {
+                    // Some Unity property getters can throw in an invalid editor state. Fall through
+                    // to a public field with the same name before reporting that read-back is unavailable.
+                }
+            }
+
+            var field = type.GetField(name,
+                BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (field == null)
+                return false;
+
+            try
+            {
+                snapshot = CreateReflectionSnapshot(name, field.FieldType, field.GetValue(component));
+                return true;
+            }
+            catch
+            {
+                snapshot = null;
+                return false;
+            }
+        }
+
+        private static PropertySnapshot CreateReflectionSnapshot(string name, Type memberType, object value)
+        {
+            return new PropertySnapshot
+            {
+                Name = name,
+                DisplayName = name,
+                Type = memberType.Name,
+                Value = ToSerializableReflectionValue(value)
+            };
+        }
+
+        private static object ToSerializableReflectionValue(object value)
+        {
+            if (value == null)
+                return null;
+
+            if (value is UnityEngine.Object unityObject)
+            {
+                if (unityObject == null)
+                    return null;
+                return new
+                {
+                    fileID = ObjectIdHelper.GetSerializableId(unityObject),
+                    name = unityObject.name,
+                    type = unityObject.GetType().Name
+                };
+            }
+
+            var valueType = value.GetType();
+            if (valueType.IsEnum)
+                return value.ToString();
+            if (value is string || valueType.IsPrimitive || value is decimal)
+                return value;
+
+            if (value is Vector2 v2) return new { x = v2.x, y = v2.y };
+            if (value is Vector3 v3) return new { x = v3.x, y = v3.y, z = v3.z };
+            if (value is Vector4 v4) return new { x = v4.x, y = v4.y, z = v4.z, w = v4.w };
+            if (value is Vector2Int v2i) return new { x = v2i.x, y = v2i.y };
+            if (value is Vector3Int v3i) return new { x = v3i.x, y = v3i.y, z = v3i.z };
+            if (value is Quaternion q) return new { x = q.x, y = q.y, z = q.z, w = q.w };
+            if (value is Color color) return new { r = color.r, g = color.g, b = color.b, a = color.a };
+            if (value is Color32 color32) return new { r = color32.r, g = color32.g, b = color32.b, a = color32.a };
+            if (value is Rect rect) return new { x = rect.x, y = rect.y, width = rect.width, height = rect.height };
+            if (value is RectInt rectInt) return new { x = rectInt.x, y = rectInt.y, width = rectInt.width, height = rectInt.height };
+            if (value is Bounds bounds)
+            {
+                return new
+                {
+                    center = new { x = bounds.center.x, y = bounds.center.y, z = bounds.center.z },
+                    extents = new { x = bounds.extents.x, y = bounds.extents.y, z = bounds.extents.z }
+                };
+            }
+            if (value is LayerMask layerMask)
+                return layerMask.value;
+            if (value is AnimationCurve)
+                return "<AnimationCurve>";
+            if (value is Array array)
+            {
+                var items = new List<object>(array.Length);
+                foreach (var item in array)
+                    items.Add(ToSerializableReflectionValue(item));
+                return items;
+            }
+
+            return value.ToString();
+        }
+
         private static object ReadPropertyValue(SerializedProperty p)
         {
             switch (p.propertyType)

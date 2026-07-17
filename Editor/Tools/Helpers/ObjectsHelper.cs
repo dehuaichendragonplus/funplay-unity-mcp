@@ -24,6 +24,7 @@ namespace Funplay.Editor.Tools.Helpers
         public const string MethodByLayer = "by_layer";
         public const string MethodByComponent = "by_component";
         public const string MethodByIdOrNameOrPath = "by_id_or_name_or_path";
+        public const int DefaultBatchTargetLimit = 100;
 
         public static readonly string[] AllMethods =
         {
@@ -214,9 +215,88 @@ namespace Funplay.Editor.Tools.Helpers
 
             var distinct = results.Distinct().ToList();
             if (!findAll && distinct.Count > 1)
-                return new List<GameObject> { distinct[0] };
+            {
+                // Prefer a currently-active object so a name shared with inactive (e.g. pooled) clones
+                // resolves to the visible one deterministically, not an arbitrary FindObjectsOfTypeAll hit.
+                var active = distinct.FirstOrDefault(g => g != null && g.activeInHierarchy);
+                return new List<GameObject> { active != null ? active : distinct[0] };
+            }
 
             return distinct;
+        }
+
+        /// <summary>
+        /// Resolve MANY GameObjects from a comma-separated list OR a single find spec. Each token is
+        /// resolved via <see cref="FindObjects"/> with findAll, so one token can expand to many
+        /// (e.g. a tag/name shared by several objects). Results are de-duplicated, order preserved.
+        /// Shared by the multi-target batch tools (set_transform/set_active/set_component_properties, copy/paste).
+        /// </summary>
+        public static List<GameObject> ResolveMany(string targets, string searchMethod = null, bool searchInactive = true)
+        {
+            bool ignored;
+            return ResolveMany(targets, searchMethod, searchInactive, int.MaxValue, out ignored);
+        }
+
+        /// <summary>
+        /// Bounded variant for mutating batch tools. Stops as soon as more than
+        /// <paramref name="maxResults"/> unique targets resolve and sets
+        /// <paramref name="limitExceeded"/> so the caller can reject the whole operation before
+        /// modifying anything. The returned list contains at most maxResults + 1 objects.
+        /// </summary>
+        public static List<GameObject> ResolveMany(string targets, string searchMethod, bool searchInactive,
+            int maxResults, out bool limitExceeded)
+        {
+            var results = new List<GameObject>();
+            limitExceeded = false;
+            if (string.IsNullOrWhiteSpace(targets))
+                return results;
+            if (maxResults <= 0)
+                throw new ArgumentOutOfRangeException(nameof(maxResults), "Batch target limit must be positive.");
+
+            var seen = new HashSet<GameObject>();
+            foreach (var raw in targets.Split(','))
+            {
+                var token = raw.Trim();
+                if (token.Length == 0)
+                    continue;
+
+                foreach (var go in FindObjects(token, searchMethod, findAll: true, searchInactive: searchInactive))
+                {
+                    if (go != null && seen.Add(go))
+                    {
+                        results.Add(go);
+                        if (results.Count > maxResults)
+                        {
+                            limitExceeded = true;
+                            return results;
+                        }
+                    }
+                }
+            }
+            return results;
+        }
+
+        /// <summary>Locate a component by type name on a specific GameObject (TypeResolver, then case-insensitive Name/FullName fallback). Shared by the batch component tools.</summary>
+        public static Component ResolveComponentOnGo(GameObject go, string typeName)
+        {
+            if (go == null || string.IsNullOrEmpty(typeName))
+                return null;
+
+            var type = TypeResolver.ResolveComponent(typeName);
+            if (type != null)
+            {
+                var c = go.GetComponent(type);
+                if (c != null) return c;
+            }
+
+            foreach (var c in go.GetComponents<Component>())
+            {
+                if (c == null) continue;
+                if (string.Equals(c.GetType().Name, typeName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(c.GetType().FullName, typeName, StringComparison.OrdinalIgnoreCase))
+                    return c;
+            }
+            return null;
         }
 
         /// <summary>
